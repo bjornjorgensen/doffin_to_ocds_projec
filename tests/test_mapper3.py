@@ -511,6 +511,53 @@ class TestLotStrategicProcurement(unittest.TestCase):
         if 'procedure' in ocds_data.get('tender', {}):
             self.assertNotIn('isAccelerated', ocds_data['tender']['procedure'], "The 'isAccelerated' key should not exist in the procedure object.")
 
+    def test_framework_duration_justification_present(self):
+        # XML input where Framework Agreement Justification is provided
+        eform_xml = """
+            <Root xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+                  xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+                <cac:ProcurementProjectLot>
+                    <cbc:ID schemeName="Lot">1</cbc:ID>
+                    <cac:TenderingProcess>
+                        <cac:FrameworkAgreement>
+                            <cbc:Justification>Required due to extended project scope</cbc:Justification>
+                        </cac:FrameworkAgreement>
+                    </cac:TenderingProcess>
+                </cac:ProcurementProjectLot>
+            </Root>
+        """
+        ocds_data = eform_to_ocds(eform_xml, lookup_form_type)
+
+        # Assert the lot contains the correct framework agreement justification
+        self.assertTrue('lots' in ocds_data['tender'], "Lots should be present in the OCDS data.")
+        self.assertTrue('techniques' in ocds_data['tender']['lots'][0], "Techniques data should be present in the lot.")
+        self.assertEqual(
+            ocds_data['tender']['lots'][0]['techniques']['frameworkAgreement']['periodRationale'],
+            "Required due to extended project scope",
+            "The period rationale should match the provided justification."
+        )
+
+    def test_framework_duration_justification_absent(self):
+        # XML input without Framework Agreement Justification
+        eform_xml = """
+            <Root xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+                  xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+                <cac:ProcurementProjectLot>
+                    <cbc:ID schemeName="Lot">1</cbc:ID>
+                    <cac:TenderingProcess>
+                        <cac:FrameworkAgreement>
+                            <!-- No Justification Element -->
+                        </cac:FrameworkAgreement>
+                    </cac:TenderingProcess>
+                </cac:ProcurementProjectLot>
+            </Root>
+        """
+        ocds_data = eform_to_ocds(eform_xml, lookup_form_type)
+
+        # Assert techniques or frameworkAgreement keys should not be present if there's no justification
+        self.assertTrue('lots' in ocds_data['tender'], "Lots should be present in the OCDS data.")
+        self.assertTrue('techniques' not in ocds_data['tender']['lots'][0] or 'frameworkAgreement' not in ocds_data['tender']['lots'][0]['techniques'],
+                        "Framework agreement or its justification should not be present if not provided in the XML.")
 if __name__ == '__main__':
     unittest.main()
 

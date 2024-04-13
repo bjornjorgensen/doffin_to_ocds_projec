@@ -81,14 +81,24 @@ def get_legal_basis(root, ns):
 def get_lot_strategic_procurement(root, ns):
     lots = []
     for lot in root.findall(".//cac:ProcurementProjectLot", namespaces=ns):
-        lot_id_element = lot.find("cbc:ID", namespaces=ns)
-        if lot_id_element is not None and lot_id_element.get("schemeName") == "Lot":
+        lot_id_element = lot.find("cbc:ID[@schemeName='Lot']", namespaces=ns)
+        if lot_id_element is not None:
             lot_id = lot_id_element.text
             lot_data = {
                 "id": lot_id,
                 "hasSustainability": False,
                 "sustainability": []
             }
+            
+            # New: Extracting Framework Agreement Justification
+            justification_element = lot.find(".//cac:TenderingProcess/cac:FrameworkAgreement/cbc:Justification", namespaces=ns)
+            if justification_element is not None and justification_element.text:
+                if 'techniques' not in lot_data:
+                    lot_data['techniques'] = {}
+                lot_data['techniques']['frameworkAgreement'] = {
+                    "periodRationale": justification_element.text
+                }
+
             procurement_project = lot.find("cac:ProcurementProject", namespaces=ns)
             if procurement_project is not None:
                 procurement_types = procurement_project.findall("cac:ProcurementAdditionalType/cbc:ProcurementTypeCode[@listName='strategic-procurement']", namespaces=ns)
@@ -207,7 +217,7 @@ def eform_to_ocds(eform_xml, lookup_form_type):
     procedure_type_data = get_procedure_type(root, ns)
     if procedure_type_data:
         ocds_data["tender"].update(procedure_type_data)
-        
+
     # Check and clean if tender or legalBasis is empty
     if "legalBasis" in ocds_data["tender"] and not ocds_data["tender"]["legalBasis"]:
         del ocds_data["tender"]["legalBasis"]
