@@ -96,30 +96,32 @@ def get_lot_strategic_procurement(root, ns):
                 "sustainability": []
             }
 
-            # Handling of Framework Agreement attributes
+            # Check for GPA coverage and optionally create 'coveredBy'
+            gpa_indicator_element = lot.find(".//cac:TenderingProcess/cbc:GovernmentAgreementConstraintIndicator", namespaces=ns)
+            if gpa_indicator_element is not None and gpa_indicator_element.text.strip().lower() == 'true':
+                lot_data['coveredBy'] = ['GPA']  # Create 'coveredBy' and populate with 'GPA'
+
+            # Framework agreement processing
             framework_agreement = lot.find(".//cac:TenderingProcess/cac:FrameworkAgreement", namespaces=ns)
             if framework_agreement is not None:
                 fa_data = {}
 
-                # Justification
                 justification_element = framework_agreement.find(".//cbc:Justification", namespaces=ns)
                 if justification_element is not None:
                     fa_data['periodRationale'] = justification_element.text
 
-                # Buyer Categories
                 buyer_categories_element = framework_agreement.find(".//cac:SubsequentProcessTenderRequirement[cbc:Name='buyer-categories']/cbc:Description", namespaces=ns)
                 if buyer_categories_element is not None:
                     fa_data['buyerCategories'] = buyer_categories_element.text
-
-                # Maximum Participants
+                
                 max_participants_element = framework_agreement.find(".//cbc:MaximumOperatorQuantity", namespaces=ns)
                 if max_participants_element is not None:
                     fa_data['maximumParticipants'] = int(max_participants_element.text)
-
+                
                 if fa_data:
                     lot_data['techniques'] = {'frameworkAgreement': fa_data}
 
-            # Sustainability procurement types
+            # Sustainability and strategic procurement processing
             procurement_project = lot.find("cac:ProcurementProject", namespaces=ns)
             if procurement_project is not None and len(procurement_project) > 0:
                 procurement_types = procurement_project.findall("cac:ProcurementAdditionalType/cbc:ProcurementTypeCode[@listName='strategic-procurement']", namespaces=ns)
@@ -127,7 +129,7 @@ def get_lot_strategic_procurement(root, ns):
                     code = procurement_type.text
                     if code != "none":
                         lot_data["hasSustainability"] = True
-                        sustainability_goal = STRATEGIC_PROCUREMENT_MAPPING.get(code)
+                        sustainability_goal = STRATEGIC_PROCUREMENT_MAPPING.get(code, None)
                         if sustainability_goal:
                             sustainability_data = {
                                 "goal": sustainability_goal,

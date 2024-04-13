@@ -711,6 +711,50 @@ class TestLotStrategicProcurement(unittest.TestCase):
         self.assertIn('frameworkAgreement', ocds_data['tender']['lots'][0]['techniques'], "The 'techniques' should include 'frameworkAgreement'.")
         self.assertEqual(ocds_data['tender']['lots'][0]['techniques']['frameworkAgreement'].get('maximumParticipants'), expected_max_participants,
                          "The maximum participants should match the expected number.")
+        
+    def test_lot_with_and_without_gpa_coverage(self):
+        # XML setup with a lot that includes GPA coverage indicators
+        eform_xml = """
+            <Root xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+                xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+                <cac:ProcurementProjectLot>
+                    <cbc:ID schemeName="Lot">LOT-0001</cbc:ID>
+                    <cac:TenderingProcess>
+                        <cbc:GovernmentAgreementConstraintIndicator>true</cbc:GovernmentAgreementConstraintIndicator>
+                        <cac:FrameworkAgreement>
+                            <cbc:MaximumOperatorQuantity>50</cbc:MaximumOperatorQuantity>
+                            <cbc:Justification>A specific need</cbc:Justification>
+                            <cac:SubsequentProcessTenderRequirement>
+                                <cbc:Name>buyer-categories</cbc:Name>
+                                <cbc:Description>National security agencies</cbc:Description>
+                            </cac:SubsequentProcessTenderRequirement>
+                        </cac:FrameworkAgreement>
+                    </cac:TenderingProcess>
+                </cac:ProcurementProjectLot>
+                <cac:ProcurementProjectLot>
+                    <cbc:ID schemeName="Lot">LOT-0002</cbc:ID>
+                    <cac:TenderingProcess>
+                        <cbc:GovernmentAgreementConstraintIndicator>false</cbc:GovernmentAgreementConstraintIndicator>
+                    </cac:TenderingProcess>
+                </cac:ProcurementProjectLot>
+            </Root>
+        """
+        ocds_data = eform_to_ocds(eform_xml, lookup_form_type)  # Assuming eform_to_ocds generates the comprehensive OCDS output structure.
+
+        # Test first lot with GPA coverage and additional details
+        self.assertIn('tender', ocds_data)
+        self.assertIn('lots', ocds_data['tender'])
+        lot1 = ocds_data['tender']['lots'][0]
+        self.assertEqual(lot1['id'], 'LOT-0001')
+        self.assertEqual(lot1['coveredBy'], ['GPA'])
+        self.assertEqual(lot1['techniques']['frameworkAgreement']['maximumParticipants'], 50)
+        self.assertEqual(lot1['techniques']['frameworkAgreement']['periodRationale'], 'A specific need')
+        self.assertEqual(lot1['techniques']['frameworkAgreement']['buyerCategories'], 'National security agencies')
+
+        # Test second lot without GPA coverage
+        lot2 = ocds_data['tender']['lots'][1]
+        self.assertEqual(lot2['id'], 'LOT-0002')
+        self.assertNotIn('coveredBy', lot2, "GPA coverage should not be present if the indicator is false")    
             
 if __name__ == '__main__':
     unittest.main()
