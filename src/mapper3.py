@@ -105,6 +105,19 @@ def get_cross_border_law(root, ns):
         return cross_border_law_element.text  # Assumes that there's only one such description
     return None
 
+def get_buyer_activity_authority(root, ns):
+    contracting_party = root.find(".//cac:ContractingParty", namespaces=ns)
+    if contracting_party is not None:
+        activity_type_code = contracting_party.find(".//cac:ContractingActivity/cbc:ActivityTypeCode[@listName='BuyerActivityList']", namespaces=ns)
+        if activity_type_code is not None:
+            code = activity_type_code.text
+            return {
+                "scheme": "eu-main-activity",
+                "id": code,
+                "description": code  # Use the code as the description placeholder
+            }
+    return None
+
 def eform_to_ocds(eform_xml, lookup_form_type):
     root = etree.fromstring(eform_xml)
     ocds_data = {"tender": {}}
@@ -149,6 +162,18 @@ def eform_to_ocds(eform_xml, lookup_form_type):
     if cross_border_law_description:
         ocds_data["tender"]["crossBorderLaw"] = cross_border_law_description
     
+    # Handle Buyer Activity Authority
+    buyer_activity_authority = get_buyer_activity_authority(root, ns)
+    if buyer_activity_authority:
+        ocds_data["parties"] = [
+            {
+                "id": "BUYER_ID",  # Replace with the actual buyer ID if available
+                "details": {
+                    "classifications": [buyer_activity_authority]
+                }
+            }
+        ]
+
     # Check and clean if tender or legalBasis is empty
     if "legalBasis" in ocds_data["tender"] and not ocds_data["tender"]["legalBasis"]:
         del ocds_data["tender"]["legalBasis"]

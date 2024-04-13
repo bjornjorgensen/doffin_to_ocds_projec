@@ -418,6 +418,39 @@ class TestLotStrategicProcurement(unittest.TestCase):
         self.assertEqual(ocds_data['tender']['crossBorderLaw'], expected_cross_border_law,
                          "The crossBorderLaw should match the expected description.")
 
+    def test_buyer_activity(self):
+        # A minimal eForm XML sample containing the buyer's activity information 
+        eform_xml = """
+        <Root xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+        xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+        <cac:ContractingParty>
+            <cac:ContractingActivity>
+                <cbc:ActivityTypeCode listName="BuyerActivityList">ActivityCode123</cbc:ActivityTypeCode>
+            </cac:ContractingActivity>
+        </cac:ContractingParty>
+        </Root>
+        """
+        # Convert the eForm XML to OCDS data directly using the XML string
+        ocds_data = eform_to_ocds(eform_xml, lookup_form_type)
+
+        # Assert checks
+        expected_buyer_activity = {
+            "scheme": "eu-main-activity",
+            "id": "ActivityCode123",
+            "description": "ActivityCode123"  # Placeholder for the actual description, adjust as necessary
+        }
+
+        # Check if your ocds_data structure places 'parties' and looks for the specific classification within the appropriate party
+        self.assertIn('parties', ocds_data, "The 'parties' key should exist in OCDS data.")
+
+        found_activity_classification = any(
+            expected_buyer_activity in party.get("details", {}).get("classifications", [])
+            for party in ocds_data['parties']
+        )
+        
+        self.assertTrue(found_activity_classification,
+                        "The expected buyer activity classification should exist within the parties' classifications.")
+
 if __name__ == '__main__':
     unittest.main()
 
