@@ -1,0 +1,9 @@
+<!-- A sample XML structure with DocumentDescription -->
+<Root xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2" xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+    <cac:TenderingTerms>
+        <cac:ProcurementLegislationDocumentReference>
+            <cbc:ID schemeName="ELI">http://data.europa.eu/eli/dir/2014/24/oj</cbc:ID>
+            <cbc:DocumentDescription languageID="ENG">Directive XYZ applies ...</cbc:DocumentDescription>
+        </cac:ProcurementLegislationDocumentReference>
+    </cac:TenderingTerms>
+</Root>
