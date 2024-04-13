@@ -4,7 +4,7 @@ from lxml import etree
 import sys
 
 # Assume mapper3.py is stored in the same directory
-from mapper3 import eform_to_ocds  # Adjust the import path if necessary
+from mapper3 import eform_to_ocds, lookup_form_type  # Adjust the import path if necessary
 
 def read_xml_file(file_path):
     with open(file_path, 'rb') as file:
@@ -20,7 +20,7 @@ def main(xml_input_path, json_output_path):
         xml_data = read_xml_file(xml_input_path)
 
         # Convert XML to OCDS format
-        ocds_data = eform_to_ocds(xml_data)
+        ocds_data = eform_to_ocds(xml_data, lookup_form_type)
 
         # Write the OCDS JSON to a file
         write_json_file(ocds_data, json_output_path)
