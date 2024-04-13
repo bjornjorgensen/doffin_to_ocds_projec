@@ -96,6 +96,15 @@ def get_lot_strategic_procurement(root, ns):
             lots.append(lot_data)
     return lots
 
+def get_cross_border_law(root, ns):
+    """
+    Extracts the Cross Border Law description, if available.
+    """
+    cross_border_law_element = root.find(".//cac:TenderingTerms/cac:ProcurementLegislationDocumentReference[cbc:ID='CrossBorderLaw']/cbc:DocumentDescription", namespaces=ns)
+    if cross_border_law_element is not None:
+        return cross_border_law_element.text  # Assumes that there's only one such description
+    return None
+
 def eform_to_ocds(eform_xml, lookup_form_type):
     root = etree.fromstring(eform_xml)
     ocds_data = {"tender": {}}
@@ -135,6 +144,11 @@ def eform_to_ocds(eform_xml, lookup_form_type):
     if lots:
         ocds_data["tender"]["lots"] = lots
 
+    # Cross Border Law from BT-09(b)
+    cross_border_law_description = get_cross_border_law(root, ns)
+    if cross_border_law_description:
+        ocds_data["tender"]["crossBorderLaw"] = cross_border_law_description
+    
     # Check and clean if tender or legalBasis is empty
     if "legalBasis" in ocds_data["tender"] and not ocds_data["tender"]["legalBasis"]:
         del ocds_data["tender"]["legalBasis"]

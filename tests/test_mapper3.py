@@ -393,6 +393,31 @@ class TestLotStrategicProcurement(unittest.TestCase):
         self.assertEqual(result, expected_output)
 
 
+    def test_cross_border_law(self):
+        # A minimal eForm XML sample containing the CrossBorderLaw description
+        eform_xml = """
+        <Root xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+              xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+            <cac:TenderingTerms>
+                <cac:ProcurementLegislationDocumentReference>
+                    <cbc:ID>CrossBorderLaw</cbc:ID>
+                    <cbc:DocumentDescription>Directive XYZ on Cross Border Procurement</cbc:DocumentDescription>
+                </cac:ProcurementLegislationDocumentReference>
+            </cac:TenderingTerms>
+        </Root>
+        """
+
+       # Convert the eForm XML to OCDS data directly using the XML string
+        ocds_data = eform_to_ocds(eform_xml, lookup_form_type)
+        
+        # Assert checks
+        expected_cross_border_law = "Directive XYZ on Cross Border Procurement"
+        # Check if your ocds_data structure places 'crossBorderLaw' inside 'tender' or directly at the root or another structure
+        self.assertIn('tender', ocds_data, "The 'tender' key should exist in OCDS data.")
+        self.assertIn('crossBorderLaw', ocds_data['tender'], "The 'crossBorderLaw' key should exist in the tender data.")
+        self.assertEqual(ocds_data['tender']['crossBorderLaw'], expected_cross_border_law,
+                         "The crossBorderLaw should match the expected description.")
+
 if __name__ == '__main__':
     unittest.main()
 
