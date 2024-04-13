@@ -137,6 +137,12 @@ def get_procedure_type(root, ns):
             return procedure_mapping
     return None
 
+def is_procedure_accelerated(root, ns):
+    process_reason_element = root.find(".//cac:TenderingProcess/cac:ProcessJustification/cbc:ProcessReasonCode[@listName='accelerated-procedure']", namespaces=ns)
+    if process_reason_element is not None:
+        return process_reason_element.text.lower() == "true"
+    return False
+
 def eform_to_ocds(eform_xml, lookup_form_type):
     root = etree.fromstring(eform_xml)
     ocds_data = {"tender": {}}
@@ -198,6 +204,10 @@ def eform_to_ocds(eform_xml, lookup_form_type):
     if procedure_type_data:
         ocds_data["tender"].update(procedure_type_data)    
 
+    procedure_type_data = get_procedure_type(root, ns)
+    if procedure_type_data:
+        ocds_data["tender"].update(procedure_type_data)
+        
     # Check and clean if tender or legalBasis is empty
     if "legalBasis" in ocds_data["tender"] and not ocds_data["tender"]["legalBasis"]:
         del ocds_data["tender"]["legalBasis"]

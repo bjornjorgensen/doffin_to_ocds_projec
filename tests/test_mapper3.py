@@ -493,6 +493,24 @@ class TestLotStrategicProcurement(unittest.TestCase):
         self.assertNotIn('procurementMethod', ocds_data.get('tender', {}), "The 'procurementMethod' key should not exist in the tender object.")
         self.assertNotIn('procurementMethodDetails', ocds_data.get('tender', {}), "The 'procurementMethodDetails' key should not exist in the tender object.")
 
+    def test_accelerated_procedure_not_found(self):
+        # A minimal eForm XML sample without the accelerated procedure information
+        eform_xml = """
+            <Root xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+                  xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+                <cac:TenderingProcess>
+                    <!-- No ProcessJustification element for accelerated procedure -->
+                </cac:TenderingProcess>
+            </Root>
+        """
+        # Convert the eForm XML to OCDS data directly using the XML string
+        ocds_data = eform_to_ocds(eform_xml, lookup_form_type)
+
+        # Assert checks that the 'procedure' key does not contain the 'isAccelerated' key when the accelerated procedure is not mentioned in the XML
+        self.assertNotIn('procedure', ocds_data.get('tender', {}), "The 'procedure' key should not exist if there is no accelerated procedure information.")
+        if 'procedure' in ocds_data.get('tender', {}):
+            self.assertNotIn('isAccelerated', ocds_data['tender']['procedure'], "The 'isAccelerated' key should not exist in the procedure object.")
+
 if __name__ == '__main__':
     unittest.main()
 
