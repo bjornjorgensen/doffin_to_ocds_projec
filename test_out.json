@@ -1,11 +1,36 @@
 {
     "tender": {
         "legalBasis": {
-            "id": "OTHER",
-            "scheme": "CELEX"
+            "id": "Anskaffelseforskriften"
         },
         "status": "undefined"
     },
+    "parties": [
+        {
+            "id": "ORG-0001",
+            "details": {
+                "classifications": [
+                    {
+                        "scheme": "TED_CA_TYPE",
+                        "id": "pub-undert",
+                        "description": "Unknown legal type"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "ORG-0001",
+            "details": {
+                "classifications": [
+                    {
+                        "scheme": "TED_CA_TYPE",
+                        "id": "pub-undert",
+                        "description": "Unknown legal type"
+                    }
+                ]
+            }
+        }
+    ],
     "tag": [],
-    "date": "2023-06-23+02:00T12:00:00+02:00"
+    "date": "2024-02-16+00:00T11:26:52+00:00"
 }

@@ -95,27 +95,33 @@ def get_lot_strategic_procurement(root, ns):
                 "hasSustainability": False,
                 "sustainability": []
             }
-            
-            # New: Extracting Framework Agreement Justification
-            justification_element = lot.find(".//cac:TenderingProcess/cac:FrameworkAgreement/cbc:Justification", namespaces=ns)
-            if justification_element is not None and justification_element.text:
-                if 'techniques' not in lot_data:
-                    lot_data['techniques'] = {}
-                lot_data['techniques']['frameworkAgreement'] = {
-                    "periodRationale": justification_element.text
-                }
-            
-            # Extracting Framework Agreement Buyer Categories (BT-111)
-            buyer_categories_element = lot.find(".//cac:TenderingProcess/cac:FrameworkAgreement/cac:SubsequentProcessTenderRequirement[cbc:Name='buyer-categories']/cbc:Description", namespaces=ns)
-            if buyer_categories_element is not None:
-                if 'techniques' not in lot_data:
-                    lot_data['techniques'] = {}
-                if 'frameworkAgreement' not in lot_data['techniques']:
-                    lot_data['techniques']['frameworkAgreement'] = {}
-                lot_data['techniques']['frameworkAgreement']['buyerCategories'] = buyer_categories_element.text
 
+            # Handling of Framework Agreement attributes
+            framework_agreement = lot.find(".//cac:TenderingProcess/cac:FrameworkAgreement", namespaces=ns)
+            if framework_agreement is not None:
+                fa_data = {}
+
+                # Justification
+                justification_element = framework_agreement.find(".//cbc:Justification", namespaces=ns)
+                if justification_element is not None:
+                    fa_data['periodRationale'] = justification_element.text
+
+                # Buyer Categories
+                buyer_categories_element = framework_agreement.find(".//cac:SubsequentProcessTenderRequirement[cbc:Name='buyer-categories']/cbc:Description", namespaces=ns)
+                if buyer_categories_element is not None:
+                    fa_data['buyerCategories'] = buyer_categories_element.text
+
+                # Maximum Participants
+                max_participants_element = framework_agreement.find(".//cbc:MaximumOperatorQuantity", namespaces=ns)
+                if max_participants_element is not None:
+                    fa_data['maximumParticipants'] = int(max_participants_element.text)
+
+                if fa_data:
+                    lot_data['techniques'] = {'frameworkAgreement': fa_data}
+
+            # Sustainability procurement types
             procurement_project = lot.find("cac:ProcurementProject", namespaces=ns)
-            if procurement_project is not None:
+            if procurement_project is not None and len(procurement_project) > 0:
                 procurement_types = procurement_project.findall("cac:ProcurementAdditionalType/cbc:ProcurementTypeCode[@listName='strategic-procurement']", namespaces=ns)
                 for procurement_type in procurement_types:
                     code = procurement_type.text
@@ -128,6 +134,7 @@ def get_lot_strategic_procurement(root, ns):
                                 "strategies": ["awardCriteria", "contractPerformanceConditions", "selectionCriteria", "technicalSpecifications"]
                             }
                             lot_data["sustainability"].append(sustainability_data)
+
             lots.append(lot_data)
     return lots
 

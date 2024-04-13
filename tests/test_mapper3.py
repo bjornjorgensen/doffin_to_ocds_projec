@@ -676,6 +676,41 @@ class TestLotStrategicProcurement(unittest.TestCase):
         self.assertIn('frameworkAgreement', ocds_data['tender']['lots'][0]['techniques'], "frameworkAgreement should be present under techniques.")
         self.assertEqual(ocds_data['tender']['lots'][0]['techniques']['frameworkAgreement']['buyerCategories'],
                          expected_buyer_categories, "Buyer categories should match the expected description.")
+        
+    def test_maximum_participants_extraction(self):
+        eform_xml = """
+        <Root xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+              xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+            <cac:ProcurementProjectLot>
+                <cbc:ID schemeName="Lot">LOT-0001</cbc:ID>
+                <cac:TenderingProcess>
+                    <cac:FrameworkAgreement>
+                        <cbc:MaximumOperatorQuantity>50</cbc:MaximumOperatorQuantity>
+                    </cac:FrameworkAgreement>
+                </cac:TenderingProcess>
+            </cac:ProcurementProjectLot>
+        </Root>
+        """
+        root = etree.fromstring(eform_xml)
+        ns = {
+            'cac': 'urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2',
+            'cbc': 'urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2'
+        }
+
+        # Simulate extraction process or use direct function call if available
+        # For the example, we'll assume we have a function like `eform_to_ocds` that initializes the parsing.
+        # Modify this line to fit the actual code structure, for example using `eform_to_ocds` directly if available.
+        ocds_data = eform_to_ocds(eform_xml, lookup_form_type)
+
+        # Expected output handling for the maximum number of participants
+        expected_max_participants = 50
+        self.assertIn('tender', ocds_data, "The output should have a 'tender' key.")
+        self.assertIn('lots', ocds_data['tender'], "The tender data should include 'lots'.")
+        self.assertTrue(len(ocds_data['tender']['lots']) > 0, "There should be at least one lot.")
+        self.assertIn('techniques', ocds_data['tender']['lots'][0], "The lot should include 'techniques'.")
+        self.assertIn('frameworkAgreement', ocds_data['tender']['lots'][0]['techniques'], "The 'techniques' should include 'frameworkAgreement'.")
+        self.assertEqual(ocds_data['tender']['lots'][0]['techniques']['frameworkAgreement'].get('maximumParticipants'), expected_max_participants,
+                         "The maximum participants should match the expected number.")
             
 if __name__ == '__main__':
     unittest.main()
