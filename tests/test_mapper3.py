@@ -451,6 +451,48 @@ class TestLotStrategicProcurement(unittest.TestCase):
         self.assertTrue(found_activity_classification,
                         "The expected buyer activity classification should exist within the parties' classifications.")
 
+    def test_procedure_type(self):
+        # A minimal eForm XML sample containing the procedure type information
+        eform_xml = """
+            <Root xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+                  xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+                <cac:TenderingProcess>
+                    <cbc:ProcedureCode listName="procurement-procedure-type">open</cbc:ProcedureCode>
+                </cac:TenderingProcess>
+            </Root>
+        """
+        # Convert the eForm XML to OCDS data directly using the XML string
+        ocds_data = eform_to_ocds(eform_xml, lookup_form_type)
+
+        # Assert checks
+        expected_procedure_data = {
+            "procurementMethod": "open",
+            "procurementMethodDetails": "Open procedure"
+        }
+
+        # Check if your ocds_data structure places 'tender' and contains the expected procedure data
+        self.assertIn('tender', ocds_data, "The 'tender' key should exist in OCDS data.")
+        for key, value in expected_procedure_data.items():
+            self.assertIn(key, ocds_data['tender'], f"The '{key}' key should exist in the tender object.")
+            self.assertEqual(ocds_data['tender'][key], value, f"The '{key}' value does not match the expected value.")
+
+    def test_procedure_type_not_found(self):
+        # A minimal eForm XML sample without the procedure type information
+        eform_xml = """
+            <Root xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+                  xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+                <cac:TenderingProcess>
+                    <!-- No ProcedureCode element -->
+                </cac:TenderingProcess>
+            </Root>
+        """
+        # Convert the eForm XML to OCDS data directly using the XML string
+        ocds_data = eform_to_ocds(eform_xml, lookup_form_type)
+
+        # Assert checks
+        self.assertNotIn('procurementMethod', ocds_data.get('tender', {}), "The 'procurementMethod' key should not exist in the tender object.")
+        self.assertNotIn('procurementMethodDetails', ocds_data.get('tender', {}), "The 'procurementMethodDetails' key should not exist in the tender object.")
+
 if __name__ == '__main__':
     unittest.main()
 

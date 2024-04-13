@@ -1,6 +1,7 @@
 from lxml import etree
 from collections import defaultdict
-
+import uuid
+from datetime import datetime
 
 FORM_TYPE_MAPPING = {
     "competition": {"tag": ["tender"], "status": "active"},
@@ -11,6 +12,15 @@ FORM_TYPE_MAPPING = {
 STRATEGIC_PROCUREMENT_MAPPING = {
     "inn-pur": "economic.innovativePurchase"
     # Add any required mappings if necessary
+}
+
+PROCUREMENT_PROCEDURE_TYPE_MAPPING = {
+    "open": {"procurementMethod": "open", "procurementMethodDetails": "Open procedure"},
+    "restr": {"procurementMethod": "selective", "procurementMethodDetails": "Restricted procedure"},
+    "comp": {"procurementMethod": "competitive", "procurementMethodDetails": "Competitive procedure with negotiation"},
+    "neg-with-call": {"procurementMethod": "negotiated", "procurementMethodDetails": "Negotiated procedure with prior call"},
+    "neg-without-call": {"procurementMethod": "negotiated", "procurementMethodDetails": "Negotiated procedure without prior call"},
+    # Add more mappings as needed
 }
 
 def lookup_form_type(list_name_value):
@@ -118,6 +128,15 @@ def get_buyer_activity_authority(root, ns):
             }
     return None
 
+def get_procedure_type(root, ns):
+    procedure_code_element = root.find(".//cbc:ProcedureCode[@listName='procurement-procedure-type']", namespaces=ns)
+    if procedure_code_element is not None:
+        procedure_code = procedure_code_element.text
+        procedure_mapping = PROCUREMENT_PROCEDURE_TYPE_MAPPING.get(procedure_code)
+        if procedure_mapping:
+            return procedure_mapping
+    return None
+
 def eform_to_ocds(eform_xml, lookup_form_type):
     root = etree.fromstring(eform_xml)
     ocds_data = {"tender": {}}
@@ -174,6 +193,11 @@ def eform_to_ocds(eform_xml, lookup_form_type):
             }
         ]
 
+    # Handle Procedure Type (BT-105)
+    procedure_type_data = get_procedure_type(root, ns)
+    if procedure_type_data:
+        ocds_data["tender"].update(procedure_type_data)    
+
     # Check and clean if tender or legalBasis is empty
     if "legalBasis" in ocds_data["tender"] and not ocds_data["tender"]["legalBasis"]:
         del ocds_data["tender"]["legalBasis"]
@@ -181,3 +205,296 @@ def eform_to_ocds(eform_xml, lookup_form_type):
         del ocds_data["tender"]
 
     return ocds_data
+
+
+
+
+
+
+
+
+"""
+
+
+import uuid
+import json
+from datetime import datetime
+
+# Function to create a new release
+def create_release(notice_id, is_pin_only):
+    release = {
+        "id": notice_id,
+        "initiationType": "tender",
+        "ocid": "",
+        "relatedProcesses": [],
+        "parties": [],
+        "tender": {
+            "documents": [],
+            "participationFees": [],
+            "lots": [],
+            "lotGroups": [],
+            "items": []
+        },
+        "bids": {
+            "statistics": [],
+            "details": []
+        },
+        "awards": [],
+        "contracts": []
+    }
+
+    if is_pin_only:
+        release["ocid"] = f"ocds-prefix-{str(uuid.uuid4())}"
+    else:
+        # Set ocid based on previous publication
+        release["ocid"] = "previous-ocid"
+
+    return release
+
+# Function to convert a date to ISO format
+def convert_date_to_iso(date_str):
+    date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+    return date_obj.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+# Function to add a complaints statistic
+def add_complaints_statistic(release, lot_id, statistic_id):
+    statistic = {
+        "relatedLot": lot_id,
+        "scope": "complaints",
+        "id": str(statistic_id)
+    }
+    release["statistics"].append(statistic)
+
+# Function to add a bids statistic
+def add_bids_statistic(release, lot_id, statistic_id):
+    statistic = {
+        "relatedLot": lot_id,
+        "id": str(statistic_id)
+    }
+    release["bids"]["statistics"].append(statistic)
+
+# Function to get or create a document for a document reference
+def get_or_create_document(release, document_id):
+    for document in release["tender"]["documents"]:
+        if document["id"] == document_id:
+            return document
+    
+    new_document = {"id": document_id}
+    release["tender"]["documents"].append(new_document)
+    return new_document
+
+# Function to get or create a participation fee for a document
+def get_or_create_participation_fee(release, document_id, lot_id=None):
+    if lot_id:
+        lot = next((lot for lot in release["tender"]["lots"] if lot["id"] == lot_id), None)
+        if lot:
+            for fee in lot["participationFees"]:
+                if fee["id"] == document_id:
+                    return fee
+            
+            new_fee = {"id": document_id}
+            lot["participationFees"].append(new_fee)
+            return new_fee
+    else:
+        for fee in release["tender"]["participationFees"]:
+            if fee["id"] == document_id:
+                return fee
+        
+        new_fee = {"id": document_id}
+        release["tender"]["participationFees"].append(new_fee)
+        return new_fee
+
+# Function to get or create an organization for a company
+def get_or_create_organization(release, organization_id):
+    for organization in release["parties"]:
+        if organization["id"] == organization_id:
+            return organization
+    
+    new_organization = {
+        "id": organization_id,
+        "identifier": {},
+        "roles": []
+    }
+    release["parties"].append(new_organization)
+    return new_organization
+
+# Function to get or create a lot for a ProcurementProjectLot
+def get_or_create_lot(release, lot_id):
+    for lot in release["tender"]["lots"]:
+        if lot["id"] == lot_id:
+            return lot
+    
+    new_lot = {"id": lot_id}
+    release["tender"]["lots"].append(new_lot)
+    return new_lot
+
+# Function to get or create an item for
+def create_release(notice_id, is_pin_only, previous_ocid=None):
+    release = {
+        "id": notice_id,
+        "initiationType": "tender",
+        "ocid": "",
+        "relatedProcesses": [],
+        "parties": [],
+        "tender": {
+            "documents": [],
+            "participationFees": [],
+            "lots": [],
+            "lotGroups": [],
+            "items": []
+        },
+        "bids": {
+            "statistics": [],
+            "details": []
+        },
+        "awards": [],
+        "contracts": []
+    }
+
+    if is_pin_only:
+        release["ocid"] = f"ocds-prefix-{str(uuid.uuid4())}"
+    elif previous_ocid:
+        release["ocid"] = previous_ocid
+    else:
+        release["ocid"] = "previous-ocid"
+
+    return release
+
+def convert_date_to_iso(date_str):
+    date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+    return date_obj.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+def add_complaints_statistic(release, lot_id, statistic_id):
+    statistic = {
+        "relatedLot": lot_id,
+        "scope": "complaints",
+        "id": str(statistic_id)
+    }
+    release["statistics"].append(statistic)
+
+def add_bids_statistic(release, lot_id, statistic_id):
+    statistic = {
+        "relatedLot": lot_id,
+        "id": str(statistic_id)
+    }
+    release["bids"]["statistics"].append(statistic)
+
+def get_or_create_document(release, document_id):
+    for document in release["tender"]["documents"]:
+        if document["id"] == document_id:
+            return document
+    new_document = {"id": document_id}
+    release["tender"]["documents"].append(new_document)
+    return new_document
+
+def get_or_create_participation_fee(release, document_id, lot_id=None):
+    if lot_id:
+        lot = next((lot for lot in release["tender"]["lots"] if lot["id"] == lot_id), None)
+        if lot:
+            for fee in lot["participationFees"]:
+                if fee["id"] == document_id:
+                    return fee
+            new_fee = {"id": document_id}
+            lot["participationFees"].append(new_fee)
+            return new_fee
+    else:
+        for fee in release["tender"]["participationFees"]:
+            if fee["id"] == document_id:
+                return fee
+        new_fee = {"id": document_id}
+        release["tender"]["participationFees"].append(new_fee)
+        return new_fee
+
+def get_or_create_organization(release, organization_id):
+    for organization in release["parties"]:
+        if organization["id"] == organization_id:
+            return organization
+    new_organization = {
+        "id": organization_id,
+        "identifier": {},
+        "roles": []
+    }
+    release["parties"].append(new_organization)
+    return new_organization
+
+def get_or_create_lot(release, lot_id):
+    for lot in release["tender"]["lots"]:
+        if lot["id"] == lot_id:
+            return lot
+    new_lot = {"id": lot_id}
+    release["tender"]["lots"].append(new_lot)
+    return new_lot
+
+def process_pin_notice(eform_xml, lookup_form_type):
+    root = etree.fromstring(eform_xml)
+    ns = {
+        'cac': 'urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2',
+        'cbc': 'urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2'
+    }
+
+    for part in root.findall(".//cac:ProcurementProjectLot[cbc:ID/@schemeName='Part']", namespaces=ns):
+        part_id = part.find("cbc:ID", namespaces=ns).text
+
+        # Create a new release for each part
+        release = create_release(part_id, is_pin_only=True)
+
+        # Process other data and update the release
+        # ...
+
+        # Return or yield the release
+
+def process_non_pin_notice(eform_xml, lookup_form_type):
+    root = etree.fromstring(eform_xml)
+    ns = {
+        'cac': 'urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2',
+        'cbc': 'urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2'
+    }
+
+    notice_id = root.find("cbc:ID", namespaces=ns).text
+
+    # Determine if it's a new procedure or a continuation
+    is_new_procedure = ...  # Add logic to determine if it's a new procedure
+
+    if is_new_procedure:
+        release = create_release(notice_id, is_pin_only=False)
+    else:
+        previous_ocid = ...  # Get the previous OCID from somewhere
+        release = create_release(notice_id, is_pin_only=False, previous_ocid=previous_ocid)
+
+    # Process other data and update the release
+    # ...
+
+    return release
+
+
+
+import json
+
+ocds_json = json.dumps(ocds_release, indent=2)
+with open('output_ocds_data.json', 'w') as f:
+    f.write(ocds_json)
+
+
+
+from your_script import process_pin_notice, process_non_pin_notice, lookup_form_type
+import os
+
+# Iterate over XML files in a directory
+for filename in os.listdir('path/to/eu_ted_xml_files'):
+    if filename.endswith('.xml'):
+        with open(os.path.join('path/to/eu_ted_xml_files', filename), 'r') as f:
+            eu_ted_xml = f.read()
+
+        # Determine if it's a PIN notice or non-PIN notice
+        is_pin_notice = ... # Add your logic to determine if it's a PIN notice
+
+        if is_pin_notice:
+            ocds_release = process_pin_notice(eu_ted_xml, lookup_form_type)
+        else:
+            ocds_release = process_non_pin_notice(eu_ted_xml, lookup_form_type)
+
+        # Process or output the OCDS release
+        # ...
+
+
+"""        
