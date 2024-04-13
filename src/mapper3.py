@@ -23,6 +23,12 @@ PROCUREMENT_PROCEDURE_TYPE_MAPPING = {
     # Add more mappings as needed
 }
 
+BUYER_LEGAL_TYPE_DESCRIPTIONS = {
+    "body-pl": "Body governed by public law",
+    "central-gov": "Central government authority",
+    "public-undertaking": "Public undertaking"
+}
+
 def lookup_form_type(list_name_value):
     return FORM_TYPE_MAPPING.get(list_name_value, {"tag": [], "status": "undefined"})
 
@@ -118,11 +124,11 @@ def get_lot_strategic_procurement(root, ns):
 
 def get_cross_border_law(root, ns):
     """
-    Extracts the Cross Border Law description, if available.
+    Extracts and returns the Cross Border Law description if available.
     """
     cross_border_law_element = root.find(".//cac:TenderingTerms/cac:ProcurementLegislationDocumentReference[cbc:ID='CrossBorderLaw']/cbc:DocumentDescription", namespaces=ns)
     if cross_border_law_element is not None:
-        return cross_border_law_element.text  # Assumes that there's only one such description
+        return cross_border_law_element.text
     return None
 
 def get_buyer_activity_authority(root, ns):
@@ -153,13 +159,42 @@ def is_procedure_accelerated(root, ns):
         return process_reason_element.text.lower() == "true"
     return False
 
+def get_buyer_details(root, ns):
+    contracting_party = root.find(".//cac:ContractingParty", namespaces=ns)
+    # Explicit check for both existence and if it is non-empty
+    if contracting_party is not None and len(contracting_party):
+        buyer_id_element = contracting_party.find(".//cbc:ID[@schemeName='organization']", namespaces=ns)
+        buyer_legal_type_element = contracting_party.find(".//cbc:PartyTypeCode[@listName='buyer-legal-type']", namespaces=ns)
+        
+        if buyer_legal_type_element is not None and buyer_legal_type_element.text:
+            legal_type_code = buyer_legal_type_element.text.strip()
+            buyer_details = {
+                "id": buyer_id_element.text.strip() if buyer_id_element is not None else "Unknown ID",
+                "details": {
+                    "classifications": [
+                        {
+                            "scheme": "TED_CA_TYPE",
+                            "id": legal_type_code,
+                            "description": BUYER_LEGAL_TYPE_DESCRIPTIONS.get(legal_type_code, "Unknown legal type")
+                        }
+                    ]
+                }
+            }
+            return buyer_details
+    return None
+
 def eform_to_ocds(eform_xml, lookup_form_type):
     root = etree.fromstring(eform_xml)
-    ocds_data = {"tender": {}}
     ns = {
         'cac': 'urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2',
         'cbc': 'urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2'
     }
+
+    ocds_data = {"tender": {}}
+    buyer_details = get_buyer_details(root, ns)
+
+    if buyer_details:
+        ocds_data["parties"] = [buyer_details]
 
     # RegulatoryDomain handling for BT-01
     regulatory_domain = get_regulatory_domain(root, ns)
@@ -217,6 +252,17 @@ def eform_to_ocds(eform_xml, lookup_form_type):
     procedure_type_data = get_procedure_type(root, ns)
     if procedure_type_data:
         ocds_data["tender"].update(procedure_type_data)
+    
+    # Cross Border Law from BT-09(b)
+    cross_border_law_description = get_cross_border_law(root, ns)
+    if cross_border_law_description:
+        ocds_data["tender"]["crossBorderLaw"] = cross_border_law_description
+
+    # Check if any buyer details should be added to the parties array
+    buyer_details = get_buyer_details(root, ns)
+    if buyer_details:
+        ocds_data["parties"].append(buyer_details)
+
 
     # Check and clean if tender or legalBasis is empty
     if "legalBasis" in ocds_data["tender"] and not ocds_data["tender"]["legalBasis"]:

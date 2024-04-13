@@ -558,6 +558,67 @@ class TestLotStrategicProcurement(unittest.TestCase):
         self.assertTrue('lots' in ocds_data['tender'], "Lots should be present in the OCDS data.")
         self.assertTrue('techniques' not in ocds_data['tender']['lots'][0] or 'frameworkAgreement' not in ocds_data['tender']['lots'][0]['techniques'],
                         "Framework agreement or its justification should not be present if not provided in the XML.")
+        
+    def test_cross_border_law_present(self):
+        # XML with cross-border law described
+        eform_xml = """
+            <Root xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+                  xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+                <cac:TenderingTerms>
+                    <cac:ProcurementLegislationDocumentReference>
+                        <cbc:ID>CrossBorderLaw</cbc:ID>
+                        <cbc:DocumentDescription>Directive XYZ on Cross Border Procurement</cbc:DocumentDescription>
+                    </cac:ProcurementLegislationDocumentReference>
+                </cac:TenderingTerms>
+            </Root>
+        """
+        ocds_data = eform_to_ocds(eform_xml, lookup_form_type)
+        self.assertEqual(ocds_data['tender']['crossBorderLaw'], "Directive XYZ on Cross Border Procurement", "Cross Border Law should be correctly extracted")
+
+    def test_cross_border_law_absent(self):
+        # XML without cross-border law description
+        eform_xml = """
+            <Root xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+                  xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+                <cac:TenderingTerms>
+                    <!-- No CrossBorderLaw DocumentReference -->
+                </cac:TenderingTerms>
+            </Root>
+        """
+        ocds_data = eform_to_ocds(eform_xml, lookup_form_type)
+        self.assertNotIn('crossBorderLaw', ocds_data.get('tender', {}), "Cross Border Law should not be present if not provided")
+
+    def test_buyer_legal_type_extraction(self):
+        eform_xml = """
+            <Root xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+                  xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+                <cac:ContractingParty>
+                    <cac:Party>
+                        <cac:PartyIdentification>
+                            <cbc:ID schemeName="organization">ORG-0001</cbc:ID>
+                        </cac:PartyIdentification>
+                    </cac:Party>
+                    <cac:ContractingPartyType>
+                        <cbc:PartyTypeCode listName="buyer-legal-type">body-pl</cbc:PartyTypeCode>
+                    </cac:ContractingPartyType>
+                </cac:ContractingParty>
+            </Root>
+        """
+        # Convert the eForm XML to OCDS data directly using the XML string
+        ocds_data = eform_to_ocds(eform_xml, lookup_form_type)
+
+        # Assert checks that the parties are correctly extracted with legal type information
+        expected_classification = {
+            "scheme": "TED_CA_TYPE",
+            "id": "body-pl",
+            "description": "Body governed by public law"
+        }
+        self.assertIn('parties', ocds_data, "Parties data should be present in the OCDS data.")
+        self.assertTrue(isinstance(ocds_data['parties'], list), "Parties should be a list.")
+        self.assertTrue(len(ocds_data['parties']) > 0, "Parties list should not be empty.")
+        self.assertIn('classifications', ocds_data['parties'][0].get('details', {}), "Classifications should exist in parties[0].details.")
+        self.assertEqual(ocds_data['parties'][0]['details']['classifications'][0], expected_classification, 
+                         "The classification data of the buyer should match the expected values.")
 if __name__ == '__main__':
     unittest.main()
 
