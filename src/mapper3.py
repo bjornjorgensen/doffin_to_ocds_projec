@@ -104,6 +104,15 @@ def get_lot_strategic_procurement(root, ns):
                 lot_data['techniques']['frameworkAgreement'] = {
                     "periodRationale": justification_element.text
                 }
+            
+            # Extracting Framework Agreement Buyer Categories (BT-111)
+            buyer_categories_element = lot.find(".//cac:TenderingProcess/cac:FrameworkAgreement/cac:SubsequentProcessTenderRequirement[cbc:Name='buyer-categories']/cbc:Description", namespaces=ns)
+            if buyer_categories_element is not None:
+                if 'techniques' not in lot_data:
+                    lot_data['techniques'] = {}
+                if 'frameworkAgreement' not in lot_data['techniques']:
+                    lot_data['techniques']['frameworkAgreement'] = {}
+                lot_data['techniques']['frameworkAgreement']['buyerCategories'] = buyer_categories_element.text
 
             procurement_project = lot.find("cac:ProcurementProject", namespaces=ns)
             if procurement_project is not None:

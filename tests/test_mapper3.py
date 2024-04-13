@@ -1,7 +1,7 @@
 # tests/test_mapper3.py
 import unittest
 from src.mapper3 import eform_to_ocds, lookup_form_type # Adjust the import path as necessary
-
+from xml.etree import ElementTree as etree
 
 class TestEFormToOCDSIntegration(unittest.TestCase):
     def create_test_eform(self, scheme, id_value, description=None):
@@ -619,6 +619,64 @@ class TestLotStrategicProcurement(unittest.TestCase):
         self.assertIn('classifications', ocds_data['parties'][0].get('details', {}), "Classifications should exist in parties[0].details.")
         self.assertEqual(ocds_data['parties'][0]['details']['classifications'][0], expected_classification, 
                          "The classification data of the buyer should match the expected values.")
+
+    
+    def test_buyer_categories_integration(self):
+        eform_xml = """
+        <Root xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+              xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+            <cac:ContractingParty>
+                <cac:Party>
+                    <cac:PartyIdentification>
+                        <cbc:ID schemeName="organization">ORG-0023</cbc:ID>
+                    </cac:PartyIdentification>
+                </cac:Party>
+                <cac:ContractingPartyType>
+                    <cbc:PartyTypeCode listName="buyer-legal-type">central-gov</cbc:PartyTypeCode>
+                </cac:ContractingPartyType>
+            </cac:ContractingParty>
+            <cac:ProcurementProjectLot>
+                <cbc:ID schemeName="Lot">LOT-0001</cbc:ID>
+                <cac:TenderingProcess>
+                    <cac:FrameworkAgreement>
+                        <cac:SubsequentProcessTenderRequirement>
+                            <cbc:Name>buyer-categories</cbc:Name>
+                            <cbc:Description>Offices of the "greater region"</cbc:Description>
+                        </cac:SubsequentProcessTenderRequirement>
+                    </cac:FrameworkAgreement>
+                </cac:TenderingProcess>
+            </cac:ProcurementProjectLot>
+        </Root>
+        """
+        
+        # Define a namespace dictionary
+        ns = {
+            'cac': 'urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2',
+            'cbc': 'urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2'
+        }
+
+        root = etree.fromstring(eform_xml)
+        ocds_data = eform_to_ocds(eform_xml, lookup_form_type)
+
+        expected_classification = {
+            "scheme": "TED_CA_TYPE",
+            "id": "central-gov",
+            "description": "Central government authority"
+        }
+
+        # Test if parties are created and legal type is classified correctly
+        self.assertIn('parties', ocds_data, "Parties data should be present in the OCDS data.")
+        self.assertEqual(ocds_data['parties'][0]['details']['classifications'][0], expected_classification,
+                         "The classification data should match expected values.")
+
+        # Test to ensure the buyer categories are correctly integrated into the lot structure
+        expected_buyer_categories = "Offices of the \"greater region\""
+        self.assertEqual(len(ocds_data['tender']['lots']), 1, "There should be exactly one lot parsed.")
+        self.assertIn('techniques', ocds_data['tender']['lots'][0], "Techniques should be present in the lot data.")
+        self.assertIn('frameworkAgreement', ocds_data['tender']['lots'][0]['techniques'], "frameworkAgreement should be present under techniques.")
+        self.assertEqual(ocds_data['tender']['lots'][0]['techniques']['frameworkAgreement']['buyerCategories'],
+                         expected_buyer_categories, "Buyer categories should match the expected description.")
+            
 if __name__ == '__main__':
     unittest.main()
 
