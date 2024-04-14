@@ -201,6 +201,10 @@ def get_buyer_details(root, ns):
             return buyer_details
     return None
 
+def is_gpa_covered(root, ns):
+    gpa_indicator = root.find(".//cac:TenderingProcess/cbc:GovernmentAgreementConstraintIndicator", namespaces=ns)
+    return gpa_indicator is not None and gpa_indicator.text.lower() == 'true'
+
 def eform_to_ocds(eform_xml, lookup_form_type):
     root = etree.fromstring(eform_xml)
     ns = {
@@ -281,6 +285,8 @@ def eform_to_ocds(eform_xml, lookup_form_type):
     if buyer_details:
         ocds_data["parties"].append(buyer_details)
 
+    if is_gpa_covered(root, ns):
+        ocds_data["tender"]["coveredBy"] = ["GPA"]
 
     # Check and clean if tender or legalBasis is empty
     if "legalBasis" in ocds_data["tender"] and not ocds_data["tender"]["legalBasis"]:

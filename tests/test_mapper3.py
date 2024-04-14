@@ -337,8 +337,6 @@ class TestEFormToOCDSIntegration(unittest.TestCase):
         result = eform_to_ocds(eform_xml, lookup_form_type)
         self.assertEqual(result, expected_output, "The dispatch date and time were not processed correctly")    
 
-
-class TestLotStrategicProcurement(unittest.TestCase):
     def test_BT_06_lot_strategic_procurement(self):
         eform_xml = '''
             <root xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
@@ -756,6 +754,34 @@ class TestLotStrategicProcurement(unittest.TestCase):
         self.assertEqual(lot2['id'], 'LOT-0002')
         self.assertNotIn('coveredBy', lot2, "GPA coverage should not be present if the indicator is false")    
             
+    def test_BT_115_GPA_Coverage(self):
+        eform_xml = '''
+            <root xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+                xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+                <cac:ProcurementProjectLot>
+                    <cbc:ID schemeName="Lot">1</cbc:ID>
+                    <cac:TenderingProcess>
+                        <cbc:GovernmentAgreementConstraintIndicator>true</cbc:GovernmentAgreementConstraintIndicator>
+                    </cac:TenderingProcess>
+                </cac:ProcurementProjectLot>
+            </root>
+        '''
+        expected_output = {
+            "tender": {
+                "coveredBy": ["GPA"],  # Tender level indicates GPA coverage
+                "lots": [
+                    {
+                        "id": "1",
+                        "hasSustainability": False,
+                        "sustainability": [],
+                        "coveredBy": ["GPA"]  # Lot level also indicates GPA coverage
+                    }
+                ]
+            }
+        }
+        result = eform_to_ocds(eform_xml, lookup_form_type)
+        self.assertEqual(result, expected_output)
+
 if __name__ == '__main__':
     unittest.main()
 
