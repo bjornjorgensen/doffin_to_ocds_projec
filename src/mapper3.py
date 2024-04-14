@@ -205,11 +205,49 @@ def is_gpa_covered(root, ns):
     gpa_indicator = root.find(".//cac:TenderingProcess/cbc:GovernmentAgreementConstraintIndicator", namespaces=ns)
     return gpa_indicator is not None and gpa_indicator.text.lower() == 'true'
 
+def get_dps_termination(root, ns):
+    """
+    Processes the dynamic purchasing system termination based on e-form XML data. 
+    """
+    lot_results = []
+    notice_results = root.findall(".//efext:EformsExtension/efac:NoticeResult", namespaces=ns)
+    
+    for notice_result in notice_results:
+        dps_termination_indicator = notice_result.find(".//efbc:DPSTerminationIndicator", namespaces=ns)
+        if dps_termination_indicator is not None and dps_termination_indicator.text.strip().lower() == 'true':
+            tender_lot_id = notice_result.find(".//efac:TenderLot/cbc:ID[@schemeName='Lot']", namespaces=ns)
+            if tender_lot_id is not None:
+                lot_results.append({
+                    "id": tender_lot_id.text,
+                    "techniques": {"dynamicPurchasingSystem": {"status": "terminated"}}
+                })
+
+    return lot_results
+
+def integrate_lot_data(existing_lots, dps_termination_lots):
+    """
+    Integrates DPS termination data into existing lot data.
+    """
+    lot_id_set = set(lot["id"] for lot in dps_termination_lots)
+    for lot in existing_lots:
+        if lot["id"] in lot_id_set:
+            if "techniques" not in lot:
+                lot["techniques"] = {}
+            lot["techniques"]["dynamicPurchasingSystem"] = {"status": "terminated"}
+    for dps_lot in dps_termination_lots:
+        if dps_lot["id"] not in lot_id_set:
+            existing_lots.append(dps_lot)
+    return existing_lots
+
 def eform_to_ocds(eform_xml, lookup_form_type):
     root = etree.fromstring(eform_xml)
     ns = {
         'cac': 'urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2',
-        'cbc': 'urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2'
+        'cbc': 'urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2',
+        'ext': 'urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2',
+        'efext': 'urn:oasis:names:specification:eforms:extensions:schema:xsd:CommonExtensionComponents-1',
+        'efac': 'urn:oasis:names:specification:eforms:extensions:schema:xsd:CommonAggregateComponents-1',
+        'efbc': 'urn:oasis:names:specification:eforms:extensions:schema:xsd:CommonBasicComponents-1'
     }
 
     ocds_data = {"tender": {}}
@@ -287,6 +325,13 @@ def eform_to_ocds(eform_xml, lookup_form_type):
 
     if is_gpa_covered(root, ns):
         ocds_data["tender"]["coveredBy"] = ["GPA"]
+
+    dps_termination_lots = get_dps_termination(root, ns)
+    if dps_termination_lots:
+        if "lots" in ocds_data.get("tender", {}):
+            ocds_data["tender"]["lots"] = integrate_lot_data(ocds_data["tender"]["lots"], dps_termination_lots)
+        else:
+            ocds_data["tender"]["lots"] = dps_termination_lots    
 
     # Check and clean if tender or legalBasis is empty
     if "legalBasis" in ocds_data["tender"] and not ocds_data["tender"]["legalBasis"]:

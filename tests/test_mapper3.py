@@ -782,6 +782,47 @@ class TestEFormToOCDSIntegration(unittest.TestCase):
         result = eform_to_ocds(eform_xml, lookup_form_type)
         self.assertEqual(result, expected_output)
 
+def test_dps_termination_extraction(self):
+        eform_xml = """
+        <Root xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+              xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2"
+              xmlns:efext="urn:efext"
+              xmlns:efac="urn:efac"
+              xmlns:efbc="urn:efbc">
+            <efext:EformsExtension>
+                <efac:NoticeResult>
+                    <efac:LotResult>
+                        <efbc:DPSTerminationIndicator>true</efbc:DPSTerminationIndicator>
+                    </efac:LotResult>
+                    <efac:TenderLot>
+                        <cbc:ID schemeName="Lot">LOT-0001</cbc:ID>
+                    </efac:TenderLot>
+                </efac:NoticeResult>
+            </efext:EformsExtension>
+        </Root>
+        """
+        root = etree.fromstring(eform_xml)
+        ns = {
+            'cac': 'urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2',
+            'cbc': 'urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2',
+            'efext': 'urn:efext',
+            'efac': 'urn:efac',
+            'efbc': 'urn:efbc'
+        }
+
+        # Assuming the implementation of eform_to_ocds function exists and integrates get_dps_termination
+        ocds_data = eform_to_ocds(eform_xml, lookup_form_type)
+
+        # Expected output handling for DPS termination
+        self.assertIn('tender', ocds_data, "The output should have a 'tender' key.")
+        self.assertIn('lots', ocds_data['tender'], "The tender data should include 'lots'.")
+        self.assertTrue(len(ocds_data['tender']['lots']) > 0, "There should be at least one lot.")
+        self.assertIn('techniques', ocds_data['tender']['lots'][0], "The lot should include 'techniques'.")
+        self.assertIn('dynamicPurchasingSystem', ocds_data['tender']['lots'][0]['techniques'], "The 'techniques' should include 'dynamicPurchasingSystem'.")
+        expected_termination_status = "terminated"
+        self.assertEqual(ocds_data['tender']['lots'][0]['techniques']['dynamicPurchasingSystem'].get('status'), expected_termination_status,
+                         "The DPS status should be marked as 'terminated'.")
+        
 if __name__ == '__main__':
     unittest.main()
 
