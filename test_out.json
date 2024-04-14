@@ -1,9 +1,20 @@
 {
     "tender": {
         "legalBasis": {
-            "id": "Anskaffelseforskriften"
+            "id": "32014L0024",
+            "scheme": "CELEX"
         },
-        "status": "undefined"
+        "status": "undefined",
+        "id": "2023-684186",
+        "lots": [
+            {
+                "id": "LOT-0000",
+                "hasSustainability": false,
+                "sustainability": []
+            }
+        ],
+        "procurementMethod": "open",
+        "procurementMethodDetails": "Open procedure"
     },
     "parties": [
         {
@@ -12,7 +23,7 @@
                 "classifications": [
                     {
                         "scheme": "TED_CA_TYPE",
-                        "id": "pub-undert",
+                        "id": "cga",
                         "description": "Unknown legal type"
                     }
                 ]
@@ -24,7 +35,7 @@
                 "classifications": [
                     {
                         "scheme": "TED_CA_TYPE",
-                        "id": "pub-undert",
+                        "id": "cga",
                         "description": "Unknown legal type"
                     }
                 ]
@@ -32,5 +43,5 @@
         }
     ],
     "tag": [],
-    "date": "2024-02-16+00:00T11:26:52+00:00"
+    "date": "2023-11-17+01:00T12:00:00+01:00"
 }

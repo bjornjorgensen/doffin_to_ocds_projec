@@ -861,6 +861,46 @@ class TestEFormToOCDSIntegration(unittest.TestCase):
         self.assertTrue(ocds_data['tender']['lots'][0]['secondStage'].get('noNegotiationNecessary', False),
                         "The 'secondStage' for the lot should indicate no negotiation necessary.")
         
+    def test_electronic_auction_description_extraction(self):
+        eform_xml = """
+        <Root xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+            xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2"
+            xmlns:efext="urn:efext"
+            xmlns:efac="urn:efac"
+            xmlns:efbc="urn:efbc">
+            <cac:ProcurementProjectLot>
+                <cbc:ID schemeName="Lot">LOT-0001</cbc:ID>
+                <cac:TenderingProcess>
+                    <cac:AuctionTerms>
+                        <cbc:Description languageID="ENG">The online auction will be held on ...</cbc:Description>
+                    </cac:AuctionTerms>
+                </cac:TenderingProcess>
+            </cac:ProcurementProjectLot>
+        </Root>
+        """
+        root = etree.fromstring(eform_xml)
+        ns = {
+            'cac': 'urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2',
+            'cbc': 'urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2',
+            'ext': 'urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2',
+            'efext': 'urn:oasis:names:specification:eforms:extensions:schema:xsd:CommonExtensionComponents-1',
+            'efac': 'urn:oasis:names:specification:eforms:extensions:schema:xsd:CommonAggregateComponents-1',
+            'efbc': 'urn:oasis:names:specification:eforms:extensions:schema:xsd:CommonBasicComponents-1'
+        }
+
+        # Assuming the implementation of eform_to_ocds function exists and integrates get_electronic_auction_description
+        ocds_data = eform_to_ocds(eform_xml, lookup_form_type)
+        
+        # Expected output handling for Electronic Auction Description
+        self.assertIn('tender', ocds_data, "The output should have a 'tender' key.")
+        self.assertIn('lots', ocds_data['tender'], "The tender data should include 'lots'.")
+        self.assertTrue(len(ocds_data['tender']['lots']) > 0, "There should be at least one lot.")
+        lot_techniques = ocds_data['tender']['lots'][0].get('techniques', {})
+        self.assertIn('electronicAuction', lot_techniques, "The lot techniques should include 'electronicAuction'.")
+        self.assertIn('description', lot_techniques['electronicAuction'], "Electronic auction should include a description.")
+        self.assertEqual(lot_techniques['electronicAuction']['description'], 'The online auction will be held on ...', 
+                         "The description should be correctly parsed and matched.")
+        
 if __name__ == '__main__':
     unittest.main()
 

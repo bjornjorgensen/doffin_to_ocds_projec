@@ -265,6 +265,38 @@ def integrate_no_negotiation_data(existing_lots, no_negotiation_lots):
             lot["secondStage"]["noNegotiationNecessary"] = True
     return existing_lots
 
+def get_electronic_auction_description(root, ns):
+    """
+    Extracts electronic auction descriptions from the XML and integrates them into the lot descriptions.
+    """
+    electronic_auction_descriptions = []
+    for lot in root.findall(".//cac:ProcurementProjectLot", namespaces=ns):
+        lot_id_element = lot.find(".//cbc:ID[@schemeName='Lot']", namespaces=ns)
+        auction_description_element = lot.find(".//cac:TenderingProcess/cac:AuctionTerms/cbc:Description", namespaces=ns)
+        
+        if lot_id_element is not None and auction_description_element is not None:
+            electronic_auction_descriptions.append({
+                "id": lot_id_element.text,
+                "techniques": {
+                    "electronicAuction": {
+                        "description": auction_description_element.text
+                    }
+                }
+            })
+    return electronic_auction_descriptions
+
+def integrate_electronic_auction_data(existing_lots, electronic_auction_data):
+    """
+    Integrates electronic auction data into existing lot data.
+    """
+    auction_lot_ids = {lot["id"]: lot for lot in electronic_auction_data}
+    for lot in existing_lots:
+        if lot["id"] in auction_lot_ids:
+            if "techniques" not in lot:
+                lot["techniques"] = {}
+            lot["techniques"]["electronicAuction"] = auction_lot_ids[lot["id"]]["techniques"]["electronicAuction"]
+    return existing_lots
+
 def eform_to_ocds(eform_xml, lookup_form_type):
     root = etree.fromstring(eform_xml)
     ns = {
@@ -367,6 +399,12 @@ def eform_to_ocds(eform_xml, lookup_form_type):
         else:
             ocds_data["tender"]["lots"] = no_negotiation_lots   
 
+    electronic_auction_lots = get_electronic_auction_description(root, ns)
+    if electronic_auction_lots:
+        if "lots" in ocds_data.get("tender", {}):
+            ocds_data["tender"]["lots"] = integrate_electronic_auction_data(ocds_data["tender"]["lots"], electronic_auction_lots)
+        else:
+            ocds_data["tender"]["lots"] = electronic_auction_lots
     # Check and clean if tender or legalBasis is empty
     if "legalBasis" in ocds_data["tender"] and not ocds_data["tender"]["legalBasis"]:
         del ocds_data["tender"]["legalBasis"]
