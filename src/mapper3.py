@@ -239,6 +239,32 @@ def integrate_lot_data(existing_lots, dps_termination_lots):
             existing_lots.append(dps_lot)
     return existing_lots
 
+def get_no_negotiation_necessary(root, ns):
+    lots_no_negotiation = []
+    for lot in root.findall(".//cac:ProcurementProjectLot", namespaces=ns):
+        lot_id_element = lot.find(".//cbc:ID[@schemeName='Lot']", namespaces=ns)
+        no_negotiation_indicator = lot.find(".//cac:TenderingTerms/cac:AwardingTerms/cbc:NoFurtherNegotiationIndicator", namespaces=ns)
+        if lot_id_element is not None and no_negotiation_indicator is not None and no_negotiation_indicator.text.strip().lower() == 'true':
+            lots_no_negotiation.append({
+                "id": lot_id_element.text,
+                "secondStage": {
+                    "noNegotiationNecessary": True
+                }
+            })
+    return lots_no_negotiation
+
+def integrate_no_negotiation_data(existing_lots, no_negotiation_lots):
+    """
+    Integrates no negotiation necessary data into existing lot data.
+    """
+    no_negotiation_lot_ids = {lot["id"]: lot for lot in no_negotiation_lots}
+    for lot in existing_lots:
+        if lot["id"] in no_negotiation_lot_ids:
+            if "secondStage" not in lot:
+                lot["secondStage"] = {}
+            lot["secondStage"]["noNegotiationNecessary"] = True
+    return existing_lots
+
 def eform_to_ocds(eform_xml, lookup_form_type):
     root = etree.fromstring(eform_xml)
     ns = {
@@ -331,7 +357,15 @@ def eform_to_ocds(eform_xml, lookup_form_type):
         if "lots" in ocds_data.get("tender", {}):
             ocds_data["tender"]["lots"] = integrate_lot_data(ocds_data["tender"]["lots"], dps_termination_lots)
         else:
-            ocds_data["tender"]["lots"] = dps_termination_lots    
+            ocds_data["tender"]["lots"] = dps_termination_lots 
+            
+    # Handling No Negotiation Necessary
+    no_negotiation_lots = get_no_negotiation_necessary(root, ns)
+    if no_negotiation_lots:
+        if "lots" in ocds_data.get("tender", {}):
+            ocds_data["tender"]["lots"] = integrate_no_negotiation_data(ocds_data["tender"]["lots"], no_negotiation_lots)
+        else:
+            ocds_data["tender"]["lots"] = no_negotiation_lots   
 
     # Check and clean if tender or legalBasis is empty
     if "legalBasis" in ocds_data["tender"] and not ocds_data["tender"]["legalBasis"]:

@@ -782,13 +782,13 @@ class TestEFormToOCDSIntegration(unittest.TestCase):
         result = eform_to_ocds(eform_xml, lookup_form_type)
         self.assertEqual(result, expected_output)
 
-def test_dps_termination_extraction(self):
+    def test_dps_termination_extraction(self):
         eform_xml = """
         <Root xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
               xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2"
-              xmlns:efext="urn:efext"
-              xmlns:efac="urn:efac"
-              xmlns:efbc="urn:efbc">
+              xmlns:efext="urn:oasis:names:specification:eforms:extensions:schema:xsd:CommonExtensionComponents-1"
+              xmlns:efac="urn:oasis:names:specification:eforms:extensions:schema:xsd:CommonAggregateComponents-1"
+              xmlns:efbc="urn:oasis:names:specification:eforms:extensions:schema:xsd:CommonBasicComponents-1">
             <efext:EformsExtension>
                 <efac:NoticeResult>
                     <efac:LotResult>
@@ -805,9 +805,9 @@ def test_dps_termination_extraction(self):
         ns = {
             'cac': 'urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2',
             'cbc': 'urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2',
-            'efext': 'urn:efext',
-            'efac': 'urn:efac',
-            'efbc': 'urn:efbc'
+            'efext': 'urn:oasis:names:specification:eforms:extensions:schema:xsd:CommonExtensionComponents-1',
+            'efac': 'urn:oasis:names:specification:eforms:extensions:schema:xsd:CommonAggregateComponents-1',
+            'efbc': 'urn:oasis:names:specification:eforms:extensions:schema:xsd:CommonBasicComponents-1'
         }
 
         # Assuming the implementation of eform_to_ocds function exists and integrates get_dps_termination
@@ -822,6 +822,44 @@ def test_dps_termination_extraction(self):
         expected_termination_status = "terminated"
         self.assertEqual(ocds_data['tender']['lots'][0]['techniques']['dynamicPurchasingSystem'].get('status'), expected_termination_status,
                          "The DPS status should be marked as 'terminated'.")
+    #  BT-120-Lot
+    def test_no_negotiation_necessary_extraction(self):
+        eform_xml = """
+        <Root xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+            xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2"
+            xmlns:efext="urn:efext"
+            xmlns:efac="urn:efac"
+            xmlns:efbc="urn:efbc">
+            <cac:ProcurementProjectLot>
+                <cbc:ID schemeName="Lot">LOT-0001</cbc:ID>
+                <cac:TenderingTerms>
+                    <cac:AwardingTerms>
+                        <cbc:NoFurtherNegotiationIndicator>true</cbc:NoFurtherNegotiationIndicator>
+                    </cac:AwardingTerms>
+                </cac:TenderingTerms>
+            </cac:ProcurementProjectLot>
+        </Root>
+        """
+        root = etree.fromstring(eform_xml)
+        ns = {
+            'cac': 'urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2',
+            'cbc': 'urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2',
+            'ext': 'urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2',
+            'efext': 'urn:oasis:names:specification:eforms:extensions:schema:xsd:CommonExtensionComponents-1',
+            'efac': 'urn:oasis:names:specification:eforms:extensions:schema:xsd:CommonAggregateComponents-1',
+            'efbc': 'urn:oasis:names:specification:eforms:extensions:schema:xsd:CommonBasicComponents-1'
+        }
+
+        # Assuming the implementation of eform_to_ocds function exists and integrates get_no_negotiation_necessary
+        ocds_data = eform_to_ocds(eform_xml, lookup_form_type)
+
+        # Expected output handling for No Further Negotiation Necessary
+        self.assertIn('tender', ocds_data, "The output should have a 'tender' key.")
+        self.assertIn('lots', ocds_data['tender'], "The tender data should include 'lots'.")
+        self.assertTrue(len(ocds_data['tender']['lots']) > 0, "There should be at least one lot.")
+        self.assertIn('secondStage', ocds_data['tender']['lots'][0], "The lot should include 'secondStage'.")
+        self.assertTrue(ocds_data['tender']['lots'][0]['secondStage'].get('noNegotiationNecessary', False),
+                        "The 'secondStage' for the lot should indicate no negotiation necessary.")
         
 if __name__ == '__main__':
     unittest.main()
