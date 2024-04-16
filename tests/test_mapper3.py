@@ -1,6 +1,6 @@
 # tests/test_mapper3.py
 import unittest
-from src.mapper3 import eform_to_ocds, lookup_form_type # Adjust the import path as necessary
+from src.mapper3 import eform_to_ocds, lookup_form_type, create_release # Adjust the import path as necessary
 from xml.etree import ElementTree as etree
 
 class TestEFormToOCDSIntegration(unittest.TestCase):
@@ -900,6 +900,94 @@ class TestEFormToOCDSIntegration(unittest.TestCase):
         self.assertIn('description', lot_techniques['electronicAuction'], "Electronic auction should include a description.")
         self.assertEqual(lot_techniques['electronicAuction']['description'], 'The online auction will be held on ...', 
                          "The description should be correctly parsed and matched.")
+        
+    def test_create_release(self):
+        # Test case 1: Single release without lots
+        ocds_data = {
+            "tender": {
+                "id": "tender-123",
+                "title": "Tender Title",
+                "description": "Tender Description"
+            },
+            "parties": [
+                {
+                    "id": "buyer-1",
+                    "name": "Buyer Organization"
+                }
+            ]
+        }
+        releases = create_release(ocds_data)
+        assert len(releases) == 1
+        release = releases[0]
+        assert release["id"] == "tender-123"
+        assert release["initiationType"] == "tender"
+        assert release["ocid"] == "tender-123"
+        assert release["parties"] == ocds_data["parties"]
+        assert release["tender"] == ocds_data["tender"]
+
+        # Test case 2: Multiple releases with lots
+        ocds_data = {
+            "tender": {
+                "id": "tender-456",
+                "lots": [
+                    {
+                        "id": "lot-1",
+                        "title": "Lot 1"
+                    },
+                    {
+                        "id": "lot-2",
+                        "title": "Lot 2"
+                    }
+                ]
+            },
+            "parties": [
+                {
+                    "id": "buyer-2",
+                    "name": "Another Buyer"
+                }
+            ]
+        }
+        releases = create_release(ocds_data)
+        assert len(releases) == 2
+        for release in releases:
+            assert release["initiationType"] == "tender"
+            assert release["ocid"] == "tender-456"
+            assert release["parties"] == ocds_data["parties"]
+            assert len(release["tender"]["lots"]) == 1
+
+        # Test case 3: Assign new ocid
+        ocds_data = {
+            "tag": "priorInformation",
+            "tender": {
+                "id": "tender-789"
+            }
+        }
+        releases = create_release(ocds_data)
+        assert len(releases) == 1
+        release = releases[0]
+        assert release["id"] == "tender-789"
+        assert release["initiationType"] == "tender"
+        assert release["ocid"].startswith("ocds-prefix-")
+        assert release["ocid"] != "tender-789"
+        assert release["tender"]["id"] == "tender-789"
+
+        # Test case 4: No tender data
+        ocds_data = {
+            "parties": [
+                {
+                    "id": "buyer-3",
+                    "name": "Yet Another Buyer"
+                }
+            ]
+        }
+        releases = create_release(ocds_data)
+        assert len(releases) == 1
+        release = releases[0]
+        assert release["id"] is None
+        assert release["initiationType"] == "tender"
+        assert release["ocid"].startswith("ocds-prefix-")
+        assert release["parties"] == ocds_data["parties"]
+        #assert "tender" not in release
         
 if __name__ == '__main__':
     unittest.main()
