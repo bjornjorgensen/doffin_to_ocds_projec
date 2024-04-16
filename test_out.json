@@ -1,47 +1,15 @@
-{
-    "tender": {
-        "legalBasis": {
-            "id": "32014L0024",
-            "scheme": "CELEX"
-        },
-        "status": "undefined",
-        "id": "2023-684186",
-        "lots": [
-            {
-                "id": "LOT-0000",
-                "hasSustainability": false,
-                "sustainability": []
-            }
-        ],
-        "procurementMethod": "open",
-        "procurementMethodDetails": "Open procedure"
-    },
-    "parties": [
-        {
-            "id": "ORG-0001",
-            "details": {
-                "classifications": [
-                    {
-                        "scheme": "TED_CA_TYPE",
-                        "id": "cga",
-                        "description": "Unknown legal type"
-                    }
-                ]
-            }
-        },
-        {
-            "id": "ORG-0001",
-            "details": {
-                "classifications": [
-                    {
-                        "scheme": "TED_CA_TYPE",
-                        "id": "cga",
-                        "description": "Unknown legal type"
-                    }
-                ]
-            }
+[
+    {
+        "id": null,
+        "initiationType": "tender",
+        "ocid": "ocds-prefix-5e19731f-1838-45ef-afeb-7ef826ef17e1",
+        "parties": [],
+        "tender": {
+            "legalBasis": {
+                "id": "OTHER",
+                "scheme": "CELEX"
+            },
+            "status": "undefined"
         }
-    ],
-    "tag": [],
-    "date": "2023-11-17+01:00T12:00:00+01:00"
-}
+    }
+]

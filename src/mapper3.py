@@ -419,7 +419,6 @@ def eform_to_ocds(eform_xml, lookup_form_type):
 def create_release(ocds_data):
     tender = ocds_data.get("tender", {})
     parties = ocds_data.get("parties", [])
-
     # Check if a new ocid needs to be assigned
     assign_new_ocid = False
     if "tag" in ocds_data and ocds_data["tag"] in ["priorInformation", "periodicIndicative"]:
@@ -428,12 +427,10 @@ def create_release(ocds_data):
         assign_new_ocid = True
     elif not tender.get("id"):
         assign_new_ocid = True
-
     if assign_new_ocid:
         ocid = f"ocds-prefix-{str(uuid.uuid4())}"  # Replace 'ocds-prefix-' with your OCID prefix
     else:
         ocid = tender.get("id")
-
     release = {
         "id": tender.get("id"),
         "initiationType": "tender",
@@ -441,7 +438,6 @@ def create_release(ocds_data):
         "parties": parties,
         "tender": tender
     }
-
     # Handle lots
     if "lots" in tender:
         lots = []
@@ -458,7 +454,6 @@ def create_release(ocds_data):
             }
             lots.append(lot_release)
         return lots
-
     return [release]
 
 
