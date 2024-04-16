@@ -452,7 +452,25 @@ def create_release(ocds_data):
                     "lots": [lot]
                 }
             }
+            # Add complaints statistic
+            if "statistics" not in lot_release["tender"]:
+                lot_release["tender"]["statistics"] = []
+            complaint_statistic = {
+                "id": str(len(lot_release["tender"]["statistics"]) + 1),
+                "relatedLot": lot.get("id"),
+                "scope": "complaints"
+            }
+            lot_release["tender"]["statistics"].append(complaint_statistic)
             lots.append(lot_release)
         return lots
+    else:
+        # Add complaints statistic for the main release
+        if "statistics" not in release["tender"]:
+            release["tender"]["statistics"] = []
+        complaint_statistic = {
+            "id": str(len(release["tender"]["statistics"]) + 1),
+            "scope": "complaints"
+        }
+        release["tender"]["statistics"].append(complaint_statistic)
     return [release]
 

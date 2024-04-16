@@ -989,6 +989,65 @@ class TestEFormToOCDSIntegration(unittest.TestCase):
         assert release["parties"] == ocds_data["parties"]
         #assert "tender" not in release
         
+
+
+class TestCreateRelease(unittest.TestCase):
+    def test_create_release_with_lots(self):
+        ocds_data = {
+            "tender": {
+                "id": "tender-1",
+                "lots": [
+                    {"id": "lot-1"},
+                    {"id": "lot-2"}
+                ]
+            },
+            "parties": [
+                {"id": "party-1", "name": "Party 1"},
+                {"id": "party-2", "name": "Party 2"}
+            ]
+        }
+        releases = create_release(ocds_data)
+        self.assertEqual(len(releases), 2)
+        for release in releases:
+            self.assertIn("id", release)
+            self.assertEqual(release["initiationType"], "tender")
+            self.assertIn("ocid", release)
+            self.assertEqual(release["parties"], ocds_data["parties"])
+            self.assertIn("tender", release)
+            self.assertIn("lots", release["tender"])
+            self.assertEqual(len(release["tender"]["lots"]), 1)
+            self.assertIn("statistics", release["tender"])
+            self.assertEqual(len(release["tender"]["statistics"]), 1)
+            complaint_statistic = release["tender"]["statistics"][0]
+            self.assertIn("id", complaint_statistic)
+            self.assertIn("relatedLot", complaint_statistic)
+            self.assertEqual(complaint_statistic["scope"], "complaints")
+
+    def test_create_release_without_lots(self):
+        ocds_data = {
+            "tender": {
+                "id": "tender-1"
+            },
+            "parties": [
+                {"id": "party-1", "name": "Party 1"},
+                {"id": "party-2", "name": "Party 2"}
+            ]
+        }
+        releases = create_release(ocds_data)
+        self.assertEqual(len(releases), 1)
+        release = releases[0]
+        self.assertIn("id", release)
+        self.assertEqual(release["initiationType"], "tender")
+        self.assertIn("ocid", release)
+        self.assertEqual(release["parties"], ocds_data["parties"])
+        self.assertIn("tender", release)
+        self.assertIn("statistics", release["tender"])
+        self.assertEqual(len(release["tender"]["statistics"]), 1)
+        complaint_statistic = release["tender"]["statistics"][0]
+        self.assertIn("id", complaint_statistic)
+        self.assertNotIn("relatedLot", complaint_statistic)
+        self.assertEqual(complaint_statistic["scope"], "complaints")
+                
 if __name__ == '__main__':
     unittest.main()
 
