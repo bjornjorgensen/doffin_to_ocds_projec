@@ -3,8 +3,8 @@ import json
 from lxml import etree
 import sys
 
-# Assume mapper3.py is stored in the same directory
-from mapper3 import eform_to_ocds, lookup_form_type, create_release  # Adjust the import path if necessary
+# Assume mapper.py is stored in the same directory
+from mapper import eform_to_ocds, lookup_form_type, create_release  # Adjust the import path if necessary
 
 def read_xml_file(file_path):
     with open(file_path, 'rb') as file:
