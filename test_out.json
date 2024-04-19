@@ -1,15 +1,53 @@
 [
     {
-        "id": null,
+        "id": "LOT-0000",
         "initiationType": "tender",
-        "ocid": "ocds-prefix-5e19731f-1838-45ef-afeb-7ef826ef17e1",
-        "parties": [],
-        "tender": {
-            "legalBasis": {
-                "id": "OTHER",
-                "scheme": "CELEX"
+        "ocid": "9fbae4ef-8b27-49dd-ad9b-3f1c2613b7c0",
+        "parties": [
+            {
+                "id": "ORG-0001",
+                "details": {
+                    "classifications": [
+                        {
+                            "scheme": "TED_CA_TYPE",
+                            "id": "cga",
+                            "description": "Unknown legal type"
+                        }
+                    ]
+                }
             },
-            "status": "undefined"
+            {
+                "id": "ORG-0001",
+                "details": {
+                    "classifications": [
+                        {
+                            "scheme": "TED_CA_TYPE",
+                            "id": "cga",
+                            "description": "Unknown legal type"
+                        }
+                    ]
+                }
+            }
+        ],
+        "tender": {
+            "id": "LOT-0000",
+            "lots": [
+                {
+                    "id": "LOT-0000",
+                    "hasSustainability": false,
+                    "sustainability": [],
+                    "coveredBy": [
+                        "GPA"
+                    ]
+                }
+            ],
+            "statistics": [
+                {
+                    "id": "1",
+                    "relatedLot": "LOT-0000",
+                    "scope": "complaints"
+                }
+            ]
         }
     }
 ]

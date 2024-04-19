@@ -457,7 +457,7 @@ def create_release(ocds_data):
                 lot_release["tender"]["statistics"] = []
             complaint_statistic = {
                 "id": str(len(lot_release["tender"]["statistics"]) + 1),
-                "relatedLot": lot.get("id"),
+                "relatedLot": lot.get("id"),  # Set relatedLot to the lot ID
                 "scope": "complaints"
             }
             lot_release["tender"]["statistics"].append(complaint_statistic)
@@ -474,3 +474,94 @@ def create_release(ocds_data):
         release["tender"]["statistics"].append(complaint_statistic)
     return [release]
 
+
+
+
+
+import json
+import uuid
+from lxml import etree
+
+def convert_ted_to_ocds(xml_file):
+    tree = etree.parse(xml_file)
+    root = tree.getroot()
+
+    def create_release(part=None):
+        release = {
+            "id": root.find("./cbc:ID", namespaces=root.nsmap).text,
+            "initiationType": "tender",
+            "ocid": "",
+            "relatedProcesses": [],
+            "parties": [],
+            "tender": {
+                "documents": [],
+                "participationFees": [],
+                "lots": [],
+                "lotGroups": [],
+                "items": []
+            },
+            "bids": {
+                "statistics": [],
+                "details": []
+            },
+            "awards": [],
+            "contracts": []
+        }
+
+        is_new_ocid = False
+        previous_publication = root.find("./cbc:PreviousPublicationReference", namespaces=root.nsmap)
+        if previous_publication is None or part is not None:
+            is_new_ocid = True
+
+        release["ocid"] = "ocds-prefix-" + str(uuid.uuid4()) if is_new_ocid else release["id"]
+
+        if previous_publication is not None:
+            related_process = {
+                "id": "1",
+                "relationship": ["planning"],
+                "scheme": "eu-oj",
+                "identifier": previous_publication.find("./cbc:ID", namespaces=root.nsmap).text
+            }
+            release["relatedProcesses"].append(related_process)
+
+        if part is not None:
+            lot_id = part.find("./cbc:ID", namespaces=root.nsmap).text
+            tender_lot = {"id": lot_id}
+            release["tender"]["lots"].append(tender_lot)
+            lot_group = {"id": lot_id}
+            release["tender"]["lotGroups"].append(lot_group)
+            item = {"id": str(len(release["tender"]["items"]) + 1), "relatedLot": lot_id}
+            release["tender"]["items"].append(item)
+
+            for document_reference in part.findall("./cac:DocumentReference", namespaces=root.nsmap):
+                doc_id = document_reference.find("./cbc:ID", namespaces=root.nsmap).text
+                document = {"id": doc_id}
+                release["tender"]["documents"].append(document)
+
+            for fee_reference in part.findall("./cac:CallForTendersDocumentReference", namespaces=root.nsmap):
+                fee_id = fee_reference.find("./cbc:ID", namespaces=root.nsmap).text
+                participation_fee = {"id": fee_id}
+                release["tender"]["participationFees"].append(participation_fee)
+
+        for organization in root.findall("./cac:ContractingParty/cac:Party", namespaces=root.nsmap):
+            org_id = organization.find("./cac:PartyIdentification/cbc:ID", namespaces=root.nsmap).text
+            party = {"id": org_id, "roles": ["buyer"]}
+            release["parties"].append(party)
+
+        return release
+
+    releases = []
+
+    procurement_project_lots = root.findall("./cac:ProcurementProjectLot", namespaces=root.nsmap)
+    if len(procurement_project_lots) > 1:
+        for lot in procurement_project_lots:
+            releases.append(create_release(lot))
+    else:
+        releases.append(create_release())
+
+    return json.dumps({"releases": releases}, indent=2)
+
+# Example usage
+xml_file = "2024-101190.xml"
+ocds_json = convert_ted_to_ocds(xml_file)
+print(ocds_json)
