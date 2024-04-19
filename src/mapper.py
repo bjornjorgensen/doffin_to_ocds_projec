@@ -486,6 +486,20 @@ def convert_ted_to_ocds(xml_file):
     tree = etree.parse(xml_file)
     root = tree.getroot()
 
+    def get_legal_basis():
+        legal_basis = {}
+        legislation_reference = root.find(".//cac:TenderingTerms/cac:ProcurementLegislationDocumentReference", namespaces=root.nsmap)
+        if legislation_reference is not None:
+            id_element = legislation_reference.find("./cbc:ID", namespaces=root.nsmap)
+            description_element = legislation_reference.find("./cbc:DocumentDescription", namespaces=root.nsmap)
+            if id_element is not None:
+                legal_basis["id"] = id_element.text
+                legal_basis["scheme"] = id_element.get("schemeName", "ELI")
+            if description_element is not None:
+                legal_basis["description"] = description_element.text
+
+        return legal_basis
+
     def create_release(part=None):
         release = {
             "id": root.find("./cbc:ID", namespaces=root.nsmap).text,
@@ -498,7 +512,8 @@ def convert_ted_to_ocds(xml_file):
                 "participationFees": [],
                 "lots": [],
                 "lotGroups": [],
-                "items": []
+                "items": [],
+                "legalBasis": get_legal_basis()
             },
             "bids": {
                 "statistics": [],
