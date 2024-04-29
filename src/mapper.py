@@ -7,7 +7,6 @@ class XMLParser:
     def __init__(self, xml_file):
         self.tree = etree.parse(xml_file)
         self.root = self.tree.getroot()
-        # Defining namespaces explicitly
         self.nsmap = {
             'cac': 'urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2',
             'cbc': 'urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2',
@@ -78,10 +77,50 @@ class TEDtoOCDSConverter:
         form_type_code = self.parser.find_attribute(element, ".//cbc:NoticeTypeCode", "listName")
         return self.form_type_mapping.get(form_type_code, {'tags': [], 'tender_status': 'planned'})
 
+    def get_sustainability_details(self, element):
+        lots = []
+        lot_elements = element.findall(".//cac:ProcurementProjectLot", namespaces=self.parser.nsmap)
+        for lot_element in lot_elements:
+            lot_id = self.parser.find_text(lot_element, "./cbc:ID")
+            sustainability_info = self.parse_sustainability(lot_element.find("./cac:ProcurementProject", namespaces=self.parser.nsmap))
+            if sustainability_info:
+                lots.append({
+                    "id": lot_id,
+                    "hasSustainability": True,
+                    "sustainability": sustainability_info
+                })
+        return lots
+
+    def parse_sustainability(self, procurement_project_element):
+        sustainability_fields = [
+            "awardCriteria", "contractPerformanceConditions",
+            "selectionCriteria", "technicalSpecifications"
+        ]
+        additional_types = procurement_project_element.findall(
+            "./cac:ProcurementAdditionalType/cbc:ProcurementTypeCode",
+            namespaces=self.parser.nsmap
+        )
+        strategic_procurement_mapping = {
+            'env-imp': 'environmental',
+            'inn-pur': 'economic.innovativePurchase',
+            'soc-obj': 'social',
+            'none': None
+        }
+        sustainability_goals = []
+        for add_type in additional_types:
+            code = add_type.text
+            if code in strategic_procurement_mapping:
+                if strategic_procurement_mapping[code]:
+                    sustainability_goals.append({
+                        "goal": strategic_procurement_mapping[code],
+                        "strategies": sustainability_fields
+                    })
+
+        return sustainability_goals if sustainability_goals else None
+
     def convert_tender_to_ocds(self):
         root = self.parser.root
         form_type = self.get_form_type(root)
-        procedure_id = self.parser.find_text(root, ".//cbc:ContractFolderID")
         dispatch_datetime = self.get_dispatch_date_time(root)
         release = {
             "id": self.parser.find_text(root, "./cbc:ID"),
@@ -90,9 +129,10 @@ class TEDtoOCDSConverter:
             "date": dispatch_datetime,
             "parties": self.gather_party_info(root),
             "tender": {
-                "id": procedure_id,
+                "id": self.parser.find_text(root, ".//cbc:ContractFolderID"),
                 "legalBasis": self.get_legal_basis(root),
-                "status": form_type['tender_status']
+                "status": form_type['tender_status'],
+                "lots": self.get_sustainability_details(root)
             },
             "tags": form_type['tags'],
             "bids": {}
@@ -121,6 +161,6 @@ def convert_ted_to_ocds(xml_file):
     return result
 
 # Example usage
-xml_file = "2024-101190.xml"
+xml_file = "2023-100863.xml"
 ocds_json = convert_ted_to_ocds(xml_file)
 print(ocds_json)
