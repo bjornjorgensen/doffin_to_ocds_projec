@@ -18,14 +18,11 @@ class XMLParser:
         }
         logging.info(f'XMLParser initialized with file: {xml_file}')
 
-    def find_text(self, element, xpath):
-        # Using .// if xpath begins with // to prevent absolute path error
+    def find_text(self, element, xpath, namespaces=None):
         if xpath.startswith("//"):
-            xpath = ".\\" + xpath
-        node = element.find(xpath, namespaces=self.nsmap)
-        result = node.text if node is not None else None
-        logging.debug(f'Finding text, XPath: {xpath}, Result: {result}')
-        return result
+            xpath = ".//" + xpath[2:]  # Correcting the relative XPath
+        node = element.find(xpath, namespaces=namespaces if namespaces else self.nsmap)
+        return node.text if node is not None else None
 
     def find_attribute(self, element, xpath, attribute, default=None):
         if xpath.startswith("//"):
@@ -56,7 +53,7 @@ class TEDtoOCDSConverter:
     def get_legal_basis(self, element):
         legal_basis = {}
         all_basis = element.findall(".//cac:TenderingTerms/cac:ProcurementLegislationDocumentReference",
-                                    namespaces=self.parser.nsmap)
+                                     namespaces=self.parser.nsmap)
         for ref in all_basis:
             id_text = self.parser.find_text(ref, "./cbc:ID")
             if id_text == "LocalLegalBasis":
@@ -72,12 +69,118 @@ class TEDtoOCDSConverter:
 
     def gather_party_info(self, element):
         parties = []
-        party_elements = element.findall(".//cac:ContractingParty/cac:Party", namespaces=self.parser.nsmap)
+        party_elements = element.findall(".//cac:ContractingParty", namespaces=self.parser.nsmap)  # Directly fetch ContractingParty
         for party_element in party_elements:
-            party_id = self.parser.find_text(party_element, "./cac:PartyIdentification/cbc:ID")
+            party = party_element.find(".//cac:Party", namespaces=self.parser.nsmap)
+            party_id = self.parser.find_text(party, "./cac:PartyIdentification/cbc:ID")
+            activity_code_element = party_element.find(".//cac:ContractingActivity/cbc:ActivityTypeCode[@listName='authority-activity']", namespaces=self.parser.nsmap)
+            activity_code = activity_code_element.text if activity_code_element is not None else None
+
+            logging.debug(f'Extracted activity code for party ID {party_id}: {activity_code}')
+
             if party_id:
-                parties.append({"id": party_id, "roles": ["buyer"]})
+                info = {"id": party_id, "roles": ["buyer"]}
+                if activity_code:
+                    activity_description = self.get_activity_description(activity_code)
+                    scheme, code, description = self.map_activity_code(activity_code, activity_description)
+                    info["details"] = {
+                        "classifications": [
+                            {
+                                "scheme": scheme,
+                                "id": code,
+                                "description": description
+                            }
+                        ]
+                    }
+                    logging.debug(f'Party details for ID {party_id}: {info["details"]}')
+                else:
+                    info["details"] = {}
+                    logging.warning(f'No activity code found for party ID {party_id}')
+                parties.append(info)
+            else:
+                logging.warning('Party element found without an ID!')
+
         return parties
+
+    def get_activity_description(self, activity_code):
+        activity_descriptions = {
+            "airport": "Airport-related activities",
+            "defence": "Defence",
+            "economic": "Economic affairs",
+            "education": "Education",
+            "electricity": "Electricity-related activities",
+            "environment": "Environmental protection",
+            "coal": "Exploration or extraction of coal or other solid fuels",
+            "gas-oil": "Extraction of gas or oil",
+            "public-services": "General public services",
+            "health": "Health",
+            "housing": "Housing and community amenities",
+            "port": "Port-related activities",
+            "postal": "Postal services",
+            "gas-heat": "Production, transport or distribution of gas or heat",
+            "public-order": "Public order and safety",
+            "railway": "Railway services",
+            "recreation": "Recreation, culture and religion",
+            "social": "Social protection",
+            "urban-transport": "Urban railway, tramway, trolleybus or bus services",
+            "water": "Water-related activities",
+            "gen-pub": "General public services"
+        }
+        return activity_descriptions.get(activity_code, "")
+
+    def map_activity_code(self, activity_code, activity_description):
+        if "COFOG" in activity_description:
+            scheme = "COFOG"
+            cofog_mapping = {
+                "gas-oil": "04.2.2",  # Fuel and energy
+                "coal": "04.2.1",  # Mining, manufacturing and construction
+                "electricity": "04.2.2",  # Fuel and energy
+                "gas-heat": "04.2.2",  # Fuel and energy
+                "port": "04.5.2",  # Transport
+                "railway": "04.5.2",  # Transport
+                "urban-transport": "04.5.2",  # Transport
+                "airport": "04.5.2",  # Transport
+                "water": "06.3.0",  # Water supply
+                "environment": "05.0.0",  # Environmental protection
+                "housing": "06.1.0",  # Housing development
+                "health": "07.0.0",  # Health
+                "recreation": "08.0.0",  # Recreation, culture and religion
+                "education": "09.0.0",  # Education
+                "social": "10.0.0",  # Social protection
+                "public-services": "01.0.0",  # General public services
+                "public-order": "03.0.0",  # Public order and safety
+                "defence": "02.0.0",  # Defence
+                "economic": "04.0.0",  # Economic affairs
+                "postal": "04.7.0"  # Other industries
+            }
+            cofog_code = cofog_mapping.get(activity_code, "")
+            un_mapping = {
+                "04.2.2": "12",  # Crude petroleum and natural gas
+                "04.2.1": "11",  # Coal and peat
+                "04.5.2": "64",  # Passenger transport services
+                "06.3.0": "18",  # Natural water
+                "05.0.0": "94",  # Sewage and waste collection, treatment and disposal and other environmental protection services
+                "06.1.0": "72",  # Real estate services
+                "07.0.0": "93",  # Human health and social care services
+                "08.0.0": "96",  # Recreational, cultural and sporting services
+                "09.0.0": "92",  # Education services
+                "10.0.0": "93",  # Human health and social care services
+                "01.0.0": "91",  # Public administration and other services provided to the community as a whole; compulsory social security services
+                "03.0.0": "91",  # Public administration and other services provided to the community as a whole; compulsory social security services
+                "02.0.0": "91",  # Public administration and other services provided to the community as a whole; compulsory social security services
+                "04.0.0": "83",  # Professional, technical and business services (except research, development, legal and accounting services)
+                "04.7.0": "68"  # Postal and courier services
+            }
+            code = un_mapping.get(cofog_code, "")
+            description = activity_description
+        else:
+            scheme = "eu-main-activity"
+            description = self.get_activity_description(activity_code)
+            if activity_code == "gen-pub":
+                code = "01.0.0"
+            else:
+                code = activity_code
+        return scheme, code, description
 
     def get_form_type(self, element):
         form_type_code = self.parser.find_attribute(element, ".//cbc:NoticeTypeCode", "listName")
@@ -123,9 +226,8 @@ class TEDtoOCDSConverter:
             return [self.clean_release_structure(v) for v in data if v is not None]
         return data
 
-
 def convert_ted_to_ocds(xml_file):
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(level=logging.DEBUG)
     logging.info(f'Starting conversion for file: {xml_file}')
     parser = XMLParser(xml_file)
     converter = TEDtoOCDSConverter(parser)
@@ -136,6 +238,6 @@ def convert_ted_to_ocds(xml_file):
     return result
 
 # Example usage
-xml_file = "2023-653367.xml"
+xml_file = "2022-319091.xml"
 ocds_json = convert_ted_to_ocds(xml_file)
 print(ocds_json)
