@@ -1,0 +1,194 @@
+2024-04-29 13:58:20,090 - INFO - Starting conversion for file: 2024-101190.xml
+2024-04-29 13:58:20,091 - INFO - XMLParser initialized with file: 2024-101190.xml
+2024-04-29 13:58:20,091 - INFO - TEDtoOCDSConverter initialized.
+2024-04-29 13:58:20,091 - DEBUG - Finding text, XPath: ./cbc:ID, Result: bb343f8b-ebf5-42f9-b4d5-df54ab67ff32
+2024-04-29 13:58:20,091 - DEBUG - Finding text, XPath: ./cac:PartyIdentification/cbc:ID, Result: ORG-0001
+2024-04-29 13:58:20,091 - DEBUG - Parties gathered: [{'id': 'ORG-0001', 'roles': ['buyer']}]
+2024-04-29 13:58:20,091 - DEBUG - Finding text, XPath: ./cbc:ID, Result: Forsvar og sikkerhet
+2024-04-29 13:58:20,091 - DEBUG - Finding attribute, XPath: ./cbc:ID, Attribute: schemeName, Result: ELI
+2024-04-29 13:58:20,091 - DEBUG - Finding text, XPath: ./cbc:DocumentDescription, Result: None
+2024-04-29 13:58:20,091 - DEBUG - Legal basis found: {'id': 'Forsvar og sikkerhet', 'scheme': 'ELI', 'description': None}
+2024-04-29 13:58:20,091 - DEBUG - Cleaning release structure.
+2024-04-29 13:58:20,091 - DEBUG - Cleaning release structure.
+2024-04-29 13:58:20,091 - DEBUG - Cleaning release structure.
+2024-04-29 13:58:20,091 - DEBUG - Cleaning release structure.
+2024-04-29 13:58:20,091 - DEBUG - Cleaning release structure.
+2024-04-29 13:58:20,091 - DEBUG - Cleaning release structure.
+2024-04-29 13:58:20,091 - DEBUG - Cleaning release structure.
+2024-04-29 13:58:20,091 - DEBUG - Cleaning release structure.
+2024-04-29 13:58:20,091 - DEBUG - Cleaning release structure.
+2024-04-29 13:58:20,091 - DEBUG - Cleaning release structure.
+2024-04-29 13:58:20,091 - DEBUG - Cleaning release structure.
+2024-04-29 13:58:20,091 - DEBUG - Cleaning release structure.
+2024-04-29 13:58:20,091 - DEBUG - Cleaning release structure.
+2024-04-29 13:58:20,091 - DEBUG - Cleaning release structure.
+2024-04-29 13:58:20,091 - INFO - Conversion to OCDS format completed.
+2024-04-29 13:58:20,091 - INFO - Conversion complete, output prepared.
+2024-04-29 14:01:01,486 - INFO - Starting conversion for file: 2024-102293.xml
+2024-04-29 14:01:01,487 - INFO - XMLParser initialized with file: 2024-102293.xml
+2024-04-29 14:01:01,487 - INFO - TEDtoOCDSConverter initialized.
+2024-04-29 14:01:01,487 - DEBUG - Finding text, XPath: ./cbc:ID, Result: 20cc3b73-3085-489d-9556-5d35b231445e
+2024-04-29 14:01:01,487 - DEBUG - Finding text, XPath: ./cac:PartyIdentification/cbc:ID, Result: ORG-0001
+2024-04-29 14:01:01,487 - DEBUG - Finding text, XPath: ./cac:PartyIdentification/cbc:ID, Result: ORG-0003
+2024-04-29 14:01:01,487 - DEBUG - Parties gathered: [{'id': 'ORG-0001', 'roles': ['buyer']}, {'id': 'ORG-0003', 'roles': ['buyer']}]
+2024-04-29 14:01:01,487 - DEBUG - Finding text, XPath: ./cbc:ID, Result: Anskaffelseforskriften
+2024-04-29 14:01:01,487 - DEBUG - Finding attribute, XPath: ./cbc:ID, Attribute: schemeName, Result: ELI
+2024-04-29 14:01:01,487 - DEBUG - Finding text, XPath: ./cbc:DocumentDescription, Result: None
+2024-04-29 14:01:01,487 - DEBUG - Legal basis found: {'id': 'Anskaffelseforskriften', 'scheme': 'ELI', 'description': None}
+2024-04-29 14:01:01,487 - DEBUG - Cleaning release structure.
+2024-04-29 14:01:01,487 - DEBUG - Cleaning release structure.
+2024-04-29 14:01:01,487 - DEBUG - Cleaning release structure.
+2024-04-29 14:01:01,487 - DEBUG - Cleaning release structure.
+2024-04-29 14:01:01,487 - DEBUG - Cleaning release structure.
+2024-04-29 14:01:01,487 - DEBUG - Cleaning release structure.
+2024-04-29 14:01:01,487 - DEBUG - Cleaning release structure.
+2024-04-29 14:01:01,487 - DEBUG - Cleaning release structure.
+2024-04-29 14:01:01,487 - DEBUG - Cleaning release structure.
+2024-04-29 14:01:01,487 - DEBUG - Cleaning release structure.
+2024-04-29 14:01:01,487 - DEBUG - Cleaning release structure.
+2024-04-29 14:01:01,487 - DEBUG - Cleaning release structure.
+2024-04-29 14:01:01,487 - DEBUG - Cleaning release structure.
+2024-04-29 14:01:01,487 - DEBUG - Cleaning release structure.
+2024-04-29 14:01:01,487 - DEBUG - Cleaning release structure.
+2024-04-29 14:01:01,487 - DEBUG - Cleaning release structure.
+2024-04-29 14:01:01,487 - DEBUG - Cleaning release structure.
+2024-04-29 14:01:01,488 - DEBUG - Cleaning release structure.
+2024-04-29 14:01:01,488 - INFO - Conversion to OCDS format completed.
+2024-04-29 14:01:01,488 - INFO - Conversion complete, output prepared.
+2024-04-29 14:07:32,716 - INFO - Starting conversion for file: 2024-102293.xml
+2024-04-29 14:07:32,717 - INFO - XMLParser initialized with file: 2024-102293.xml
+2024-04-29 14:07:32,717 - INFO - TEDtoOCDSConverter initialized.
+2024-04-29 14:07:32,717 - DEBUG - Finding text, XPath: ./cbc:ID, Result: 20cc3b73-3085-489d-9556-5d35b231445e
+2024-04-29 14:07:32,717 - DEBUG - Finding text, XPath: ./cac:PartyIdentification/cbc:ID, Result: ORG-0001
+2024-04-29 14:07:32,717 - DEBUG - Finding text, XPath: ./cac:PartyIdentification/cbc:ID, Result: ORG-0003
+2024-04-29 14:07:32,717 - DEBUG - Parties gathered: [{'id': 'ORG-0001', 'roles': ['buyer']}, {'id': 'ORG-0003', 'roles': ['buyer']}]
+2024-04-29 14:07:32,717 - DEBUG - Finding text, XPath: ./cbc:ID, Result: Anskaffelseforskriften
+2024-04-29 14:07:32,717 - DEBUG - Finding text, XPath: ./cbc:DocumentDescription, Result: None
+2024-04-29 14:07:32,717 - DEBUG - Legal basis determined: {'description': None}
+2024-04-29 14:07:32,717 - DEBUG - Cleaning release structure.
+2024-04-29 14:07:32,717 - DEBUG - Cleaning release structure.
+2024-04-29 14:07:32,717 - DEBUG - Cleaning release structure.
+2024-04-29 14:07:32,717 - DEBUG - Cleaning release structure.
+2024-04-29 14:07:32,717 - DEBUG - Cleaning release structure.
+2024-04-29 14:07:32,717 - DEBUG - Cleaning release structure.
+2024-04-29 14:07:32,717 - DEBUG - Cleaning release structure.
+2024-04-29 14:07:32,717 - DEBUG - Cleaning release structure.
+2024-04-29 14:07:32,717 - DEBUG - Cleaning release structure.
+2024-04-29 14:07:32,717 - DEBUG - Cleaning release structure.
+2024-04-29 14:07:32,717 - DEBUG - Cleaning release structure.
+2024-04-29 14:07:32,717 - DEBUG - Cleaning release structure.
+2024-04-29 14:07:32,717 - DEBUG - Cleaning release structure.
+2024-04-29 14:07:32,717 - DEBUG - Cleaning release structure.
+2024-04-29 14:07:32,717 - DEBUG - Cleaning release structure.
+2024-04-29 14:07:32,718 - DEBUG - Cleaning release structure.
+2024-04-29 14:07:32,718 - INFO - Conversion to OCDS format completed.
+2024-04-29 14:07:32,718 - INFO - Conversion complete, output prepared.
+2024-04-29 14:47:43,351 - INFO - Starting conversion for file: 2024-102293.xml
+2024-04-29 14:47:43,352 - INFO - XMLParser initialized with file: 2024-102293.xml
+2024-04-29 14:47:43,352 - INFO - TEDtoOCDSConverter initialized.
+2024-04-29 14:47:43,352 - DEBUG - Finding text, XPath: ./cbc:ID, Result: 20cc3b73-3085-489d-9556-5d35b231445e
+2024-04-29 14:47:43,352 - DEBUG - Finding text, XPath: ./cac:PartyIdentification/cbc:ID, Result: ORG-0001
+2024-04-29 14:47:43,352 - DEBUG - Finding text, XPath: ./cac:PartyIdentification/cbc:ID, Result: ORG-0003
+2024-04-29 14:47:43,352 - DEBUG - Parties gathered: [{'id': 'ORG-0001', 'roles': ['buyer']}, {'id': 'ORG-0003', 'roles': ['buyer']}]
+2024-04-29 14:50:26,657 - INFO - Starting conversion for file: 2024-102293.xml
+2024-04-29 14:50:26,657 - INFO - XMLParser initialized with file: 2024-102293.xml
+2024-04-29 14:50:26,657 - INFO - TEDtoOCDSConverter initialized.
+2024-04-29 14:50:26,657 - DEBUG - Finding text, XPath: ./cbc:ID, Result: 20cc3b73-3085-489d-9556-5d35b231445e
+2024-04-29 14:50:26,657 - DEBUG - Finding text, XPath: ./cac:PartyIdentification/cbc:ID, Result: ORG-0001
+2024-04-29 14:50:26,658 - DEBUG - Finding text, XPath: ./cac:PartyIdentification/cbc:ID, Result: ORG-0003
+2024-04-29 14:50:26,658 - DEBUG - Parties gathered: [{'id': 'ORG-0001', 'roles': ['buyer']}, {'id': 'ORG-0003', 'roles': ['buyer']}]
+2024-04-29 14:50:26,658 - DEBUG - Finding text, XPath: ./cbc:ID, Result: Anskaffelseforskriften
+2024-04-29 14:50:26,658 - DEBUG - Finding text, XPath: .//cbc:RegulatoryDomain, Result: other
+2024-04-29 14:50:26,658 - INFO - Conversion to OCDS format completed.
+2024-04-29 14:50:26,658 - INFO - Conversion complete, output prepared.
+2024-04-29 14:52:49,450 - INFO - Starting conversion for file: 2024-102293.xml
+2024-04-29 14:52:49,450 - INFO - XMLParser initialized with file: 2024-102293.xml
+2024-04-29 14:52:49,450 - INFO - TEDtoOCDSConverter initialized.
+2024-04-29 14:52:49,450 - DEBUG - Finding text, XPath: ./cbc:ID, Result: 20cc3b73-3085-489d-9556-5d35b231445e
+2024-04-29 14:52:49,450 - DEBUG - Finding text, XPath: ./cac:PartyIdentification/cbc:ID, Result: ORG-0001
+2024-04-29 14:52:49,450 - DEBUG - Finding text, XPath: ./cac:PartyIdentification/cbc:ID, Result: ORG-0003
+2024-04-29 14:52:49,450 - DEBUG - Finding text, XPath: ./cbc:ID, Result: Anskaffelseforskriften
+2024-04-29 14:52:49,450 - DEBUG - Finding text, XPath: .//cbc:RegulatoryDomain, Result: other
+2024-04-29 14:52:49,450 - INFO - Conversion to OCDS format completed.
+2024-04-29 14:52:49,450 - INFO - Conversion complete, output prepared.
+2024-04-29 14:53:21,017 - INFO - Starting conversion for file: 2024-101190.xml
+2024-04-29 14:53:21,018 - INFO - XMLParser initialized with file: 2024-101190.xml
+2024-04-29 14:53:21,018 - INFO - TEDtoOCDSConverter initialized.
+2024-04-29 14:53:21,018 - DEBUG - Finding text, XPath: ./cbc:ID, Result: bb343f8b-ebf5-42f9-b4d5-df54ab67ff32
+2024-04-29 14:53:21,018 - DEBUG - Finding text, XPath: ./cac:PartyIdentification/cbc:ID, Result: ORG-0001
+2024-04-29 14:53:21,018 - DEBUG - Finding text, XPath: ./cbc:ID, Result: Forsvar og sikkerhet
+2024-04-29 14:53:21,018 - DEBUG - Finding text, XPath: .//cbc:RegulatoryDomain, Result: 32009L0081
+2024-04-29 14:53:21,019 - INFO - Conversion to OCDS format completed.
+2024-04-29 14:53:21,019 - INFO - Conversion complete, output prepared.
+2024-04-29 14:55:33,345 - INFO - Starting conversion for file: 2024-101190.xml
+2024-04-29 14:55:33,346 - INFO - XMLParser initialized with file: 2024-101190.xml
+2024-04-29 14:55:33,346 - INFO - TEDtoOCDSConverter initialized.
+2024-04-29 14:55:33,346 - DEBUG - Finding text, XPath: ./cbc:ID, Result: bb343f8b-ebf5-42f9-b4d5-df54ab67ff32
+2024-04-29 14:55:33,346 - DEBUG - Finding text, XPath: ./cac:PartyIdentification/cbc:ID, Result: ORG-0001
+2024-04-29 14:55:33,346 - DEBUG - Finding text, XPath: ./cbc:ID, Result: Forsvar og sikkerhet
+2024-04-29 14:55:33,346 - DEBUG - Finding text, XPath: .//cbc:RegulatoryDomain, Result: 32009L0081
+2024-04-29 14:55:33,346 - INFO - Conversion to OCDS format completed.
+2024-04-29 14:55:33,346 - INFO - Conversion complete, output prepared.
+2024-04-29 14:58:15,903 - INFO - Starting conversion for file: 2024-101190.xml
+2024-04-29 14:58:15,903 - INFO - XMLParser initialized with file: 2024-101190.xml
+2024-04-29 14:58:15,903 - INFO - TEDtoOCDSConverter initialized.
+2024-04-29 14:58:15,903 - DEBUG - Finding text, XPath: ./cbc:ID, Result: bb343f8b-ebf5-42f9-b4d5-df54ab67ff32
+2024-04-29 14:58:15,903 - DEBUG - Finding text, XPath: ./cac:PartyIdentification/cbc:ID, Result: ORG-0001
+2024-04-29 15:00:03,063 - INFO - Starting conversion for file: 2024-101190.xml
+2024-04-29 15:00:03,064 - INFO - XMLParser initialized with file: 2024-101190.xml
+2024-04-29 15:00:03,064 - INFO - TEDtoOCDSConverter initialized.
+2024-04-29 15:00:03,064 - DEBUG - Finding text, XPath: ./cbc:ID, Result: bb343f8b-ebf5-42f9-b4d5-df54ab67ff32
+2024-04-29 15:00:03,064 - DEBUG - Finding text, XPath: ./cac:PartyIdentification/cbc:ID, Result: ORG-0001
+2024-04-29 15:00:03,064 - DEBUG - Finding text, XPath: ./cbc:ID, Result: Forsvar og sikkerhet
+2024-04-29 15:00:03,064 - DEBUG - Finding text, XPath: .//cbc:RegulatoryDomain, Result: 32009L0081
+2024-04-29 15:00:03,064 - DEBUG - Finding text, XPath: ./cbc:ID, Result: Forsvar og sikkerhet
+2024-04-29 15:03:20,770 - INFO - Starting conversion for file: 2024-101190.xml
+2024-04-29 15:03:20,771 - INFO - XMLParser initialized with file: 2024-101190.xml
+2024-04-29 15:03:20,771 - INFO - TEDtoOCDSConverter initialized.
+2024-04-29 15:03:20,771 - DEBUG - Finding text, XPath: ./cbc:ID, Result: bb343f8b-ebf5-42f9-b4d5-df54ab67ff32
+2024-04-29 15:03:20,771 - DEBUG - Finding text, XPath: ./cac:PartyIdentification/cbc:ID, Result: ORG-0001
+2024-04-29 15:03:20,771 - DEBUG - Finding text, XPath: ./cbc:ID, Result: Forsvar og sikkerhet
+2024-04-29 15:03:20,771 - DEBUG - Finding text, XPath: .//cbc:RegulatoryDomain, Result: 32009L0081
+2024-04-29 15:03:20,771 - DEBUG - Finding text, XPath: ./cbc:ID, Result: Forsvar og sikkerhet
+2024-04-29 15:03:20,771 - INFO - Conversion to OCDS format completed.
+2024-04-29 15:03:20,772 - INFO - Conversion complete, output prepared.
+2024-04-29 15:09:09,852 - INFO - Starting conversion for file: 2024-101190.xml
+2024-04-29 15:09:09,853 - INFO - XMLParser initialized with file: 2024-101190.xml
+2024-04-29 15:09:09,853 - INFO - TEDtoOCDSConverter initialized.
+2024-04-29 15:09:09,853 - DEBUG - Finding text, XPath: ./cbc:ID, Result: bb343f8b-ebf5-42f9-b4d5-df54ab67ff32
+2024-04-29 15:09:09,853 - DEBUG - Finding text, XPath: ./cac:PartyIdentification/cbc:ID, Result: ORG-0001
+2024-04-29 15:09:09,853 - DEBUG - Finding text, XPath: ./cbc:ID, Result: Forsvar og sikkerhet
+2024-04-29 15:09:09,853 - DEBUG - Finding text, XPath: .//cbc:RegulatoryDomain, Result: 32009L0081
+2024-04-29 15:09:09,853 - DEBUG - Finding text, XPath: ./cbc:ID, Result: Forsvar og sikkerhet
+2024-04-29 15:09:09,853 - INFO - Conversion to OCDS format completed.
+2024-04-29 15:09:09,854 - INFO - Conversion complete, output prepared.
+2024-04-29 15:13:15,379 - INFO - Starting conversion for file: 2024-101190.xml
+2024-04-29 15:13:15,380 - INFO - XMLParser initialized with file: 2024-101190.xml
+2024-04-29 15:13:15,380 - INFO - TEDtoOCDSConverter initialized.
+2024-04-29 15:13:15,380 - DEBUG - Finding text, XPath: .//cbc:NoticeTypeCode[@listName='competition'], Result: cn-standard
+2024-04-29 15:13:15,380 - DEBUG - Finding text, XPath: ./cbc:ID, Result: bb343f8b-ebf5-42f9-b4d5-df54ab67ff32
+2024-04-29 15:13:15,381 - DEBUG - Finding text, XPath: ./cac:PartyIdentification/cbc:ID, Result: ORG-0001
+2024-04-29 15:13:15,381 - DEBUG - Finding text, XPath: ./cbc:ID, Result: Forsvar og sikkerhet
+2024-04-29 15:13:15,381 - DEBUG - Finding text, XPath: .//cbc:RegulatoryDomain, Result: 32009L0081
+2024-04-29 15:13:15,381 - DEBUG - Finding text, XPath: ./cbc:ID, Result: Forsvar og sikkerhet
+2024-04-29 15:13:15,381 - INFO - Conversion to OCDS format completed.
+2024-04-29 15:13:15,381 - INFO - Conversion complete, output prepared.
+2024-04-29 15:19:50,989 - INFO - Starting conversion for file: 2024-101190.xml
+2024-04-29 15:19:50,990 - INFO - XMLParser initialized with file: 2024-101190.xml
+2024-04-29 15:19:50,990 - INFO - TEDtoOCDSConverter initialized with mapping.
+2024-04-29 15:19:50,990 - DEBUG - Finding text, XPath: ./cbc:ID, Result: bb343f8b-ebf5-42f9-b4d5-df54ab67ff32
+2024-04-29 15:19:50,990 - DEBUG - Finding text, XPath: ./cac:PartyIdentification/cbc:ID, Result: ORG-0001
+2024-04-29 15:19:50,990 - DEBUG - Finding text, XPath: ./cbc:ID, Result: Forsvar og sikkerhet
+2024-04-29 15:19:50,990 - DEBUG - Finding text, XPath: .//cbc:RegulatoryDomain, Result: 32009L0081
+2024-04-29 15:19:50,990 - INFO - Conversion to OCDS format completed.
+2024-04-29 15:19:50,990 - INFO - Conversion complete, output prepared.
+2024-04-29 15:20:16,163 - INFO - Starting conversion for file: 2024-102293.xml
+2024-04-29 15:20:16,163 - INFO - XMLParser initialized with file: 2024-102293.xml
+2024-04-29 15:20:16,163 - INFO - TEDtoOCDSConverter initialized with mapping.
+2024-04-29 15:20:16,163 - DEBUG - Finding text, XPath: ./cbc:ID, Result: 20cc3b73-3085-489d-9556-5d35b231445e
+2024-04-29 15:20:16,163 - DEBUG - Finding text, XPath: ./cac:PartyIdentification/cbc:ID, Result: ORG-0001
+2024-04-29 15:20:16,163 - DEBUG - Finding text, XPath: ./cac:PartyIdentification/cbc:ID, Result: ORG-0003
+2024-04-29 15:20:16,163 - DEBUG - Finding text, XPath: ./cbc:ID, Result: Anskaffelseforskriften
+2024-04-29 15:20:16,163 - DEBUG - Finding text, XPath: .//cbc:RegulatoryDomain, Result: other
+2024-04-29 15:20:16,163 - INFO - Conversion to OCDS format completed.
+2024-04-29 15:20:16,163 - INFO - Conversion complete, output prepared.

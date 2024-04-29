@@ -1,580 +1,124 @@
-from lxml import etree
-from collections import defaultdict
-import uuid
-from datetime import datetime
-
-FORM_TYPE_MAPPING = {
-    "competition": {"tag": ["tender"], "status": "active"},
-    # Add additional mappings as necessary
-}
-
-
-STRATEGIC_PROCUREMENT_MAPPING = {
-    "inn-pur": "economic.innovativePurchase"
-    # Add any required mappings if necessary
-}
-
-PROCUREMENT_PROCEDURE_TYPE_MAPPING = {
-    "open": {"procurementMethod": "open", "procurementMethodDetails": "Open procedure"},
-    "restr": {"procurementMethod": "selective", "procurementMethodDetails": "Restricted procedure"},
-    "comp": {"procurementMethod": "competitive", "procurementMethodDetails": "Competitive procedure with negotiation"},
-    "neg-with-call": {"procurementMethod": "negotiated", "procurementMethodDetails": "Negotiated procedure with prior call"},
-    "neg-without-call": {"procurementMethod": "negotiated", "procurementMethodDetails": "Negotiated procedure without prior call"},
-    # Add more mappings as needed
-}
-
-BUYER_LEGAL_TYPE_DESCRIPTIONS = {
-    "body-pl": "Body governed by public law",
-    "central-gov": "Central government authority",
-    "public-undertaking": "Public undertaking"
-}
-
-def lookup_form_type(list_name_value):
-    return FORM_TYPE_MAPPING.get(list_name_value, {"tag": [], "status": "undefined"})
-
-def get_regulatory_domain(root, ns):
-    regulatory_domain = root.find("./cbc:RegulatoryDomain", namespaces=ns)
-    if regulatory_domain is not None:
-        return {
-            "id": regulatory_domain.text,
-            "scheme": "CELEX"
-        }
-    return None
-
-def get_notice_type_code(root, ns, lookup_form_type):
-    for notice_type_code in root.findall(".//cbc:NoticeTypeCode", namespaces=ns):
-        list_name = notice_type_code.get("listName")
-        if list_name:
-            form_type_data = lookup_form_type(list_name)
-            return {
-                "tag": form_type_data["tag"],
-                "status": form_type_data["status"]
-            }
-    return None
-
-def get_contract_folder_id(root, ns):
-    contract_folder_id = root.find(".//cbc:ContractFolderID", namespaces=ns)
-    if contract_folder_id is not None:
-        return contract_folder_id.text
-    return None
-
-def get_issue_date_time(root, ns):
-    issue_date = root.findtext(".//cbc:IssueDate", namespaces=ns)
-    issue_time = root.findtext(".//cbc:IssueTime", namespaces=ns)
-    if issue_date and issue_time:
-        return f"{issue_date}T{issue_time}"
-    return None
-
-def get_legal_basis(root, ns):
-    legal_basis_data = {}
-    for legislation_ref in root.findall(".//cac:TenderingTerms/cac:ProcurementLegislationDocumentReference", namespaces=ns):
-        id_element = legislation_ref.find('cbc:ID', namespaces=ns)
-        description_element = legislation_ref.find('cbc:DocumentDescription', namespaces=ns)
-        id_text = id_element.text if id_element is not None else None
-        description_text = description_element.text if description_element is not None else None
-
-        if id_text == 'LocalLegalBasis' and description_text:
-            legal_basis_data["description"] = description_text
-        elif id_text:
-            legal_basis_data["id"] = id_text
-            if description_text:
-                legal_basis_data["description"] = description_text
-            if id_element.get('schemeName'):
-                legal_basis_data["scheme"] = id_element.get('schemeName')
-
-    return legal_basis_data if legal_basis_data else None
-
-def get_lot_strategic_procurement(root, ns):
-    lots = []
-    for lot in root.findall(".//cac:ProcurementProjectLot", namespaces=ns):
-        lot_id_element = lot.find("cbc:ID[@schemeName='Lot']", namespaces=ns)
-        if lot_id_element is not None:
-            lot_id = lot_id_element.text
-            lot_data = {
-                "id": lot_id,
-                "hasSustainability": False,
-                "sustainability": []
-            }
-
-            # Check for GPA coverage and optionally create 'coveredBy'
-            gpa_indicator_element = lot.find(".//cac:TenderingProcess/cbc:GovernmentAgreementConstraintIndicator", namespaces=ns)
-            if gpa_indicator_element is not None and gpa_indicator_element.text.strip().lower() == 'true':
-                lot_data['coveredBy'] = ['GPA']  # Create 'coveredBy' and populate with 'GPA'
-
-            # Framework agreement processing
-            framework_agreement = lot.find(".//cac:TenderingProcess/cac:FrameworkAgreement", namespaces=ns)
-            if framework_agreement is not None:
-                fa_data = {}
-
-                justification_element = framework_agreement.find(".//cbc:Justification", namespaces=ns)
-                if justification_element is not None:
-                    fa_data['periodRationale'] = justification_element.text
-
-                buyer_categories_element = framework_agreement.find(".//cac:SubsequentProcessTenderRequirement[cbc:Name='buyer-categories']/cbc:Description", namespaces=ns)
-                if buyer_categories_element is not None:
-                    fa_data['buyerCategories'] = buyer_categories_element.text
-                
-                max_participants_element = framework_agreement.find(".//cbc:MaximumOperatorQuantity", namespaces=ns)
-                if max_participants_element is not None:
-                    fa_data['maximumParticipants'] = int(max_participants_element.text)
-                
-                if fa_data:
-                    lot_data['techniques'] = {'frameworkAgreement': fa_data}
-
-            # Sustainability and strategic procurement processing
-            procurement_project = lot.find("cac:ProcurementProject", namespaces=ns)
-            if procurement_project is not None and len(procurement_project) > 0:
-                procurement_types = procurement_project.findall("cac:ProcurementAdditionalType/cbc:ProcurementTypeCode[@listName='strategic-procurement']", namespaces=ns)
-                for procurement_type in procurement_types:
-                    code = procurement_type.text
-                    if code != "none":
-                        lot_data["hasSustainability"] = True
-                        sustainability_goal = STRATEGIC_PROCUREMENT_MAPPING.get(code, None)
-                        if sustainability_goal:
-                            sustainability_data = {
-                                "goal": sustainability_goal,
-                                "strategies": ["awardCriteria", "contractPerformanceConditions", "selectionCriteria", "technicalSpecifications"]
-                            }
-                            lot_data["sustainability"].append(sustainability_data)
-
-            lots.append(lot_data)
-    return lots
-
-def get_cross_border_law(root, ns):
-    """
-    Extracts and returns the Cross Border Law description if available.
-    """
-    cross_border_law_element = root.find(".//cac:TenderingTerms/cac:ProcurementLegislationDocumentReference[cbc:ID='CrossBorderLaw']/cbc:DocumentDescription", namespaces=ns)
-    if cross_border_law_element is not None:
-        return cross_border_law_element.text
-    return None
-
-def get_buyer_activity_authority(root, ns):
-    contracting_party = root.find(".//cac:ContractingParty", namespaces=ns)
-    if contracting_party is not None:
-        activity_type_code = contracting_party.find(".//cac:ContractingActivity/cbc:ActivityTypeCode[@listName='BuyerActivityList']", namespaces=ns)
-        if activity_type_code is not None:
-            code = activity_type_code.text
-            return {
-                "scheme": "eu-main-activity",
-                "id": code,
-                "description": code  # Use the code as the description placeholder
-            }
-    return None
-
-def get_procedure_type(root, ns):
-    procedure_code_element = root.find(".//cbc:ProcedureCode[@listName='procurement-procedure-type']", namespaces=ns)
-    if procedure_code_element is not None:
-        procedure_code = procedure_code_element.text
-        procedure_mapping = PROCUREMENT_PROCEDURE_TYPE_MAPPING.get(procedure_code)
-        if procedure_mapping:
-            return procedure_mapping
-    return None
-
-def is_procedure_accelerated(root, ns):
-    process_reason_element = root.find(".//cac:TenderingProcess/cac:ProcessJustification/cbc:ProcessReasonCode[@listName='accelerated-procedure']", namespaces=ns)
-    if process_reason_element is not None:
-        return process_reason_element.text.lower() == "true"
-    return False
-
-def get_buyer_details(root, ns):
-    contracting_party = root.find(".//cac:ContractingParty", namespaces=ns)
-    # Explicit check for both existence and if it is non-empty
-    if contracting_party is not None and len(contracting_party):
-        buyer_id_element = contracting_party.find(".//cbc:ID[@schemeName='organization']", namespaces=ns)
-        buyer_legal_type_element = contracting_party.find(".//cbc:PartyTypeCode[@listName='buyer-legal-type']", namespaces=ns)
-        
-        if buyer_legal_type_element is not None and buyer_legal_type_element.text:
-            legal_type_code = buyer_legal_type_element.text.strip()
-            buyer_details = {
-                "id": buyer_id_element.text.strip() if buyer_id_element is not None else "Unknown ID",
-                "details": {
-                    "classifications": [
-                        {
-                            "scheme": "TED_CA_TYPE",
-                            "id": legal_type_code,
-                            "description": BUYER_LEGAL_TYPE_DESCRIPTIONS.get(legal_type_code, "Unknown legal type")
-                        }
-                    ]
-                }
-            }
-            return buyer_details
-    return None
-
-def is_gpa_covered(root, ns):
-    gpa_indicator = root.find(".//cac:TenderingProcess/cbc:GovernmentAgreementConstraintIndicator", namespaces=ns)
-    return gpa_indicator is not None and gpa_indicator.text.lower() == 'true'
-
-def get_dps_termination(root, ns):
-    """
-    Processes the dynamic purchasing system termination based on e-form XML data. 
-    """
-    lot_results = []
-    notice_results = root.findall(".//efext:EformsExtension/efac:NoticeResult", namespaces=ns)
-    
-    for notice_result in notice_results:
-        dps_termination_indicator = notice_result.find(".//efbc:DPSTerminationIndicator", namespaces=ns)
-        if dps_termination_indicator is not None and dps_termination_indicator.text.strip().lower() == 'true':
-            tender_lot_id = notice_result.find(".//efac:TenderLot/cbc:ID[@schemeName='Lot']", namespaces=ns)
-            if tender_lot_id is not None:
-                lot_results.append({
-                    "id": tender_lot_id.text,
-                    "techniques": {"dynamicPurchasingSystem": {"status": "terminated"}}
-                })
-
-    return lot_results
-
-def integrate_lot_data(existing_lots, dps_termination_lots):
-    """
-    Integrates DPS termination data into existing lot data.
-    """
-    lot_id_set = set(lot["id"] for lot in dps_termination_lots)
-    for lot in existing_lots:
-        if lot["id"] in lot_id_set:
-            if "techniques" not in lot:
-                lot["techniques"] = {}
-            lot["techniques"]["dynamicPurchasingSystem"] = {"status": "terminated"}
-    for dps_lot in dps_termination_lots:
-        if dps_lot["id"] not in lot_id_set:
-            existing_lots.append(dps_lot)
-    return existing_lots
-
-def get_no_negotiation_necessary(root, ns):
-    lots_no_negotiation = []
-    for lot in root.findall(".//cac:ProcurementProjectLot", namespaces=ns):
-        lot_id_element = lot.find(".//cbc:ID[@schemeName='Lot']", namespaces=ns)
-        no_negotiation_indicator = lot.find(".//cac:TenderingTerms/cac:AwardingTerms/cbc:NoFurtherNegotiationIndicator", namespaces=ns)
-        if lot_id_element is not None and no_negotiation_indicator is not None and no_negotiation_indicator.text.strip().lower() == 'true':
-            lots_no_negotiation.append({
-                "id": lot_id_element.text,
-                "secondStage": {
-                    "noNegotiationNecessary": True
-                }
-            })
-    return lots_no_negotiation
-
-def integrate_no_negotiation_data(existing_lots, no_negotiation_lots):
-    """
-    Integrates no negotiation necessary data into existing lot data.
-    """
-    no_negotiation_lot_ids = {lot["id"]: lot for lot in no_negotiation_lots}
-    for lot in existing_lots:
-        if lot["id"] in no_negotiation_lot_ids:
-            if "secondStage" not in lot:
-                lot["secondStage"] = {}
-            lot["secondStage"]["noNegotiationNecessary"] = True
-    return existing_lots
-
-def get_electronic_auction_description(root, ns):
-    """
-    Extracts electronic auction descriptions from the XML and integrates them into the lot descriptions.
-    """
-    electronic_auction_descriptions = []
-    for lot in root.findall(".//cac:ProcurementProjectLot", namespaces=ns):
-        lot_id_element = lot.find(".//cbc:ID[@schemeName='Lot']", namespaces=ns)
-        auction_description_element = lot.find(".//cac:TenderingProcess/cac:AuctionTerms/cbc:Description", namespaces=ns)
-        
-        if lot_id_element is not None and auction_description_element is not None:
-            electronic_auction_descriptions.append({
-                "id": lot_id_element.text,
-                "techniques": {
-                    "electronicAuction": {
-                        "description": auction_description_element.text
-                    }
-                }
-            })
-    return electronic_auction_descriptions
-
-def integrate_electronic_auction_data(existing_lots, electronic_auction_data):
-    """
-    Integrates electronic auction data into existing lot data.
-    """
-    auction_lot_ids = {lot["id"]: lot for lot in electronic_auction_data}
-    for lot in existing_lots:
-        if lot["id"] in auction_lot_ids:
-            if "techniques" not in lot:
-                lot["techniques"] = {}
-            lot["techniques"]["electronicAuction"] = auction_lot_ids[lot["id"]]["techniques"]["electronicAuction"]
-    return existing_lots
-
-def eform_to_ocds(eform_xml, lookup_form_type):
-    root = etree.fromstring(eform_xml)
-    ns = {
-        'cac': 'urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2',
-        'cbc': 'urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2',
-        'ext': 'urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2',
-        'efext': 'urn:oasis:names:specification:eforms:extensions:schema:xsd:CommonExtensionComponents-1',
-        'efac': 'urn:oasis:names:specification:eforms:extensions:schema:xsd:CommonAggregateComponents-1',
-        'efbc': 'urn:oasis:names:specification:eforms:extensions:schema:xsd:CommonBasicComponents-1'
-    }
-
-    ocds_data = {"tender": {}}
-    buyer_details = get_buyer_details(root, ns)
-
-    if buyer_details:
-        ocds_data["parties"] = [buyer_details]
-
-    # RegulatoryDomain handling for BT-01
-    regulatory_domain = get_regulatory_domain(root, ns)
-    if regulatory_domain:
-        ocds_data["tender"]["legalBasis"] = regulatory_domain
-
-    # Process each NoticeTypeCode element
-    notice_type_code_data = get_notice_type_code(root, ns, lookup_form_type)
-    if notice_type_code_data:
-        ocds_data["tag"] = notice_type_code_data["tag"]
-        ocds_data["tender"]["status"] = notice_type_code_data["status"]
-
-    # ContractFolderID from BT-04
-    contract_folder_id = get_contract_folder_id(root, ns)
-    if contract_folder_id:
-        ocds_data["tender"]["id"] = contract_folder_id
-
-    # Combined Date and Time handling for BT-05
-    issue_date_time = get_issue_date_time(root, ns)
-    if issue_date_time:
-        ocds_data["date"] = issue_date_time
-
-    # Handle ProcurementLegislationDocumentReference
-    legal_basis_data = get_legal_basis(root, ns)
-    if legal_basis_data:
-        ocds_data["tender"]["legalBasis"] = legal_basis_data
-
-    # Handle Lot Strategic Procurement
-    lots = get_lot_strategic_procurement(root, ns)
-    if lots:
-        ocds_data["tender"]["lots"] = lots
-
-    # Cross Border Law from BT-09(b)
-    cross_border_law_description = get_cross_border_law(root, ns)
-    if cross_border_law_description:
-        ocds_data["tender"]["crossBorderLaw"] = cross_border_law_description
-    
-    # Handle Buyer Activity Authority
-    buyer_activity_authority = get_buyer_activity_authority(root, ns)
-    if buyer_activity_authority:
-        ocds_data["parties"] = [
-            {
-                "id": "BUYER_ID",  # Replace with the actual buyer ID if available
-                "details": {
-                    "classifications": [buyer_activity_authority]
-                }
-            }
-        ]
-
-    # Handle Procedure Type (BT-105)
-    procedure_type_data = get_procedure_type(root, ns)
-    if procedure_type_data:
-        ocds_data["tender"].update(procedure_type_data)    
-
-    procedure_type_data = get_procedure_type(root, ns)
-    if procedure_type_data:
-        ocds_data["tender"].update(procedure_type_data)
-    
-    # Cross Border Law from BT-09(b)
-    cross_border_law_description = get_cross_border_law(root, ns)
-    if cross_border_law_description:
-        ocds_data["tender"]["crossBorderLaw"] = cross_border_law_description
-
-    # Check if any buyer details should be added to the parties array
-    buyer_details = get_buyer_details(root, ns)
-    if buyer_details:
-        ocds_data["parties"].append(buyer_details)
-
-    if is_gpa_covered(root, ns):
-        ocds_data["tender"]["coveredBy"] = ["GPA"]
-
-    dps_termination_lots = get_dps_termination(root, ns)
-    if dps_termination_lots:
-        if "lots" in ocds_data.get("tender", {}):
-            ocds_data["tender"]["lots"] = integrate_lot_data(ocds_data["tender"]["lots"], dps_termination_lots)
-        else:
-            ocds_data["tender"]["lots"] = dps_termination_lots 
-            
-    # Handling No Negotiation Necessary
-    no_negotiation_lots = get_no_negotiation_necessary(root, ns)
-    if no_negotiation_lots:
-        if "lots" in ocds_data.get("tender", {}):
-            ocds_data["tender"]["lots"] = integrate_no_negotiation_data(ocds_data["tender"]["lots"], no_negotiation_lots)
-        else:
-            ocds_data["tender"]["lots"] = no_negotiation_lots   
-
-    electronic_auction_lots = get_electronic_auction_description(root, ns)
-    if electronic_auction_lots:
-        if "lots" in ocds_data.get("tender", {}):
-            ocds_data["tender"]["lots"] = integrate_electronic_auction_data(ocds_data["tender"]["lots"], electronic_auction_lots)
-        else:
-            ocds_data["tender"]["lots"] = electronic_auction_lots
-    # Check and clean if tender or legalBasis is empty
-    if "legalBasis" in ocds_data["tender"] and not ocds_data["tender"]["legalBasis"]:
-        del ocds_data["tender"]["legalBasis"]
-    if not ocds_data["tender"]:
-        del ocds_data["tender"]
-
-    return ocds_data
-
-
-
-
-def create_release(ocds_data):
-    tender = ocds_data.get("tender", {})
-    parties = ocds_data.get("parties", [])
-    # Check if a new ocid needs to be assigned
-    assign_new_ocid = False
-    if "tag" in ocds_data and ocds_data["tag"] in ["priorInformation", "periodicIndicative"]:
-        assign_new_ocid = True
-    elif "tag" in ocds_data and ocds_data["tag"] == "contractAward":
-        assign_new_ocid = True
-    elif not tender.get("id"):
-        assign_new_ocid = True
-    if assign_new_ocid:
-        ocid = f"ocds-prefix-{str(uuid.uuid4())}"  # Replace 'ocds-prefix-' with your OCID prefix
-    else:
-        ocid = tender.get("id")
-    release = {
-        "id": tender.get("id"),
-        "initiationType": "tender",
-        "ocid": ocid,
-        "parties": parties,
-        "tender": tender
-    }
-    # Handle lots
-    if "lots" in tender:
-        lots = []
-        for lot in tender["lots"]:
-            lot_release = {
-                "id": lot.get("id"),
-                "initiationType": "tender",
-                "ocid": ocid,
-                "parties": parties,
-                "tender": {
-                    "id": lot.get("id"),
-                    "lots": [lot]
-                }
-            }
-            # Add complaints statistic
-            if "statistics" not in lot_release["tender"]:
-                lot_release["tender"]["statistics"] = []
-            complaint_statistic = {
-                "id": str(len(lot_release["tender"]["statistics"]) + 1),
-                "relatedLot": lot.get("id"),  # Set relatedLot to the lot ID
-                "scope": "complaints"
-            }
-            lot_release["tender"]["statistics"].append(complaint_statistic)
-            lots.append(lot_release)
-        return lots
-    else:
-        # Add complaints statistic for the main release
-        if "statistics" not in release["tender"]:
-            release["tender"]["statistics"] = []
-        complaint_statistic = {
-            "id": str(len(release["tender"]["statistics"]) + 1),
-            "scope": "complaints"
-        }
-        release["tender"]["statistics"].append(complaint_statistic)
-    return [release]
-
-
-
-
-
+import logging
 import json
 import uuid
 from lxml import etree
 
-def convert_ted_to_ocds(xml_file):
-    tree = etree.parse(xml_file)
-    root = tree.getroot()
+class XMLParser:
+    def __init__(self, xml_file):
+        self.tree = etree.parse(xml_file)
+        self.root = self.tree.getroot()
+        # Defining namespaces explicitly
+        self.nsmap = {
+            'cac': 'urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2',
+            'cbc': 'urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2',
+            'ext': 'urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2',
+            'efext': 'urn:oasis:names:specification:eforms:extensions:schema:xsd:CommonExtensionComponents-1',
+            'efac': 'urn:oasis:names:specification:eforms:extensions:schema:xsd:CommonAggregateComponents-1',
+            'efbc': 'urn:oasis:names:specification:eforms:extensions:schema:xsd:CommonBasicComponents-1'
+        }
+        logging.info(f'XMLParser initialized with file: {xml_file}')
 
-    def get_legal_basis():
+    def find_text(self, element, xpath):
+        node = element.find(xpath, namespaces=self.nsmap)
+        result = node.text if node is not None else None
+        logging.debug(f'Finding text, XPath: {xpath}, Result: {result}')
+        return result
+
+    def find_attribute(self, element, xpath, attribute, default=None):
+        node = element.find(xpath, namespaces=self.nsmap)
+        return node.get(attribute) if node is not None else default
+
+class TEDtoOCDSConverter:
+    def __init__(self, parser):
+        self.parser = parser
+        self.form_type_mapping = {
+            'planning': {'tags': ['tender'], 'tender_status': 'planned'},
+            'competition': {'tags': ['tender'], 'tender_status': 'active'},
+            'change': {'tags': ['tenderUpdate'], 'tender_status': None},
+            'result': {'tags': ['award', 'contract'], 'tender_status': 'complete'},
+            'dir-awa-pre': {'tags': ['award', 'contract'], 'tender_status': 'complete'},
+            'cont-modif': {'tags': ['awardUpdate', 'contractUpdate'], 'tender_status': None}
+        }
+        logging.info('TEDtoOCDSConverter initialized with mapping.')
+
+    def get_dispatch_date_time(self, root):
+        issue_date = root.xpath("string(//cbc:IssueDate)", namespaces=self.parser.nsmap)
+        issue_time = root.xpath("string(//cbc:IssueTime)", namespaces=self.parser.nsmap)
+        if issue_date and issue_time:
+            return f"{issue_date}T{issue_time}"
+        return None
+
+    def get_legal_basis(self, element):
         legal_basis = {}
-        legislation_reference = root.find(".//cac:TenderingTerms/cac:ProcurementLegislationDocumentReference", namespaces=root.nsmap)
-        if legislation_reference is not None:
-            id_element = legislation_reference.find("./cbc:ID", namespaces=root.nsmap)
-            description_element = legislation_reference.find("./cbc:DocumentDescription", namespaces=root.nsmap)
-            if id_element is not None:
-                legal_basis["id"] = id_element.text
-                legal_basis["scheme"] = id_element.get("schemeName", "ELI")
-            if description_element is not None:
-                legal_basis["description"] = description_element.text
-
+        all_basis = element.findall(".//cac:TenderingTerms/cac:ProcurementLegislationDocumentReference",
+                                    namespaces=self.parser.nsmap)
+        for ref in all_basis:
+            id_text = self.parser.find_text(ref, "./cbc:ID")
+            if id_text == "LocalLegalBasis":
+                legal_basis['id'] = 'LocalLegalBasis'
+                description = self.parser.find_text(ref, "./cbc:DocumentDescription")
+                if description:
+                    legal_basis['description'] = description
+                break
+        celex_code = self.parser.find_text(element, ".//cbc:RegulatoryDomain")
+        if celex_code:
+            legal_basis = {'scheme': 'CELEX', 'id': celex_code}
         return legal_basis
 
-    def create_release(part=None):
+    def gather_party_info(self, element):
+        parties = []
+        party_elements = element.findall(".//cac:ContractingParty/cac:Party", namespaces=self.parser.nsmap)
+        for party_element in party_elements:
+            party_id = self.parser.find_text(party_element, "./cac:PartyIdentification/cbc:ID")
+            if party_id:
+                parties.append({"id": party_id, "roles": ["buyer"]})
+        return parties
+
+    def get_form_type(self, element):
+        form_type_code = self.parser.find_attribute(element, ".//cbc:NoticeTypeCode", "listName")
+        return self.form_type_mapping.get(form_type_code, {'tags': [], 'tender_status': 'planned'})
+
+    def convert_tender_to_ocds(self):
+        root = self.parser.root
+        form_type = self.get_form_type(root)
+        procedure_id = self.parser.find_text(root, ".//cbc:ContractFolderID")
+        dispatch_datetime = self.get_dispatch_date_time(root)
         release = {
-            "id": root.find("./cbc:ID", namespaces=root.nsmap).text,
+            "id": self.parser.find_text(root, "./cbc:ID"),
             "initiationType": "tender",
-            "ocid": "",
-            "relatedProcesses": [],
-            "parties": [],
+            "ocid": "ocds-prefix-" + str(uuid.uuid4()),
+            "date": dispatch_datetime,
+            "parties": self.gather_party_info(root),
             "tender": {
-                "documents": [],
-                "participationFees": [],
-                "lots": [],
-                "lotGroups": [],
-                "items": [],
-                "legalBasis": get_legal_basis()
+                "id": procedure_id,
+                "legalBasis": self.get_legal_basis(root),
+                "status": form_type['tender_status']
             },
-            "bids": {
-                "statistics": [],
-                "details": []
-            },
-            "awards": [],
-            "contracts": []
+            "tags": form_type['tags'],
+            "bids": {}
         }
+        cleaned_release = self.clean_release_structure(release)
+        logging.info('Conversion to OCDS format completed.')
+        return cleaned_release
 
-        is_new_ocid = False
-        previous_publication = root.find("./cbc:PreviousPublicationReference", namespaces=root.nsmap)
-        if previous_publication is None or part is not None:
-            is_new_ocid = True
+    def clean_release_structure(self, data):
+        if isinstance(data, dict):
+            cleaned = {k: self.clean_release_structure(v) for k, v in data.items() if v is not None}
+            return {k: v for k, v in cleaned.items() if v}
+        elif isinstance(data, list):
+            return [self.clean_release_structure(v) for v in data if v is not None]
+        return data
 
-        release["ocid"] = "ocds-prefix-" + str(uuid.uuid4()) if is_new_ocid else release["id"]
-
-        if previous_publication is not None:
-            related_process = {
-                "id": "1",
-                "relationship": ["planning"],
-                "scheme": "eu-oj",
-                "identifier": previous_publication.find("./cbc:ID", namespaces=root.nsmap).text
-            }
-            release["relatedProcesses"].append(related_process)
-
-        if part is not None:
-            lot_id = part.find("./cbc:ID", namespaces=root.nsmap).text
-            tender_lot = {"id": lot_id}
-            release["tender"]["lots"].append(tender_lot)
-            lot_group = {"id": lot_id}
-            release["tender"]["lotGroups"].append(lot_group)
-            item = {"id": str(len(release["tender"]["items"]) + 1), "relatedLot": lot_id}
-            release["tender"]["items"].append(item)
-
-            for document_reference in part.findall("./cac:DocumentReference", namespaces=root.nsmap):
-                doc_id = document_reference.find("./cbc:ID", namespaces=root.nsmap).text
-                document = {"id": doc_id}
-                release["tender"]["documents"].append(document)
-
-            for fee_reference in part.findall("./cac:CallForTendersDocumentReference", namespaces=root.nsmap):
-                fee_id = fee_reference.find("./cbc:ID", namespaces=root.nsmap).text
-                participation_fee = {"id": fee_id}
-                release["tender"]["participationFees"].append(participation_fee)
-
-        for organization in root.findall("./cac:ContractingParty/cac:Party", namespaces=root.nsmap):
-            org_id = organization.find("./cac:PartyIdentification/cbc:ID", namespaces=root.nsmap).text
-            party = {"id": org_id, "roles": ["buyer"]}
-            release["parties"].append(party)
-
-        return release
-
-    releases = []
-
-    procurement_project_lots = root.findall("./cac:ProcurementProjectLot", namespaces=root.nsmap)
-    if len(procurement_project_lots) > 1:
-        for lot in procurement_project_lots:
-            releases.append(create_release(lot))
-    else:
-        releases.append(create_release())
-
-    return json.dumps({"releases": releases}, indent=2)
+def convert_ted_to_ocds(xml_file):
+    logging.basicConfig(level=logging.INFO)
+    logging.info(f'Starting conversion for file: {xml_file}')
+    parser = XMLParser(xml_file)
+    converter = TEDtoOCDSConverter(parser)
+    release_info = converter.convert_tender_to_ocds()
+    releases = [release_info]
+    result = json.dumps({"releases": releases}, indent=2)
+    logging.info('Conversion complete, output prepared.')
+    return result
 
 # Example usage
 xml_file = "2024-101190.xml"
