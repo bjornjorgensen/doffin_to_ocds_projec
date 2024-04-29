@@ -1,7 +1,8 @@
 import logging
-import json
 import uuid
+import json
 from lxml import etree
+
 
 class XMLParser:
     def __init__(self, xml_file):
@@ -18,12 +19,17 @@ class XMLParser:
         logging.info(f'XMLParser initialized with file: {xml_file}')
 
     def find_text(self, element, xpath):
+        # Using .// if xpath begins with // to prevent absolute path error
+        if xpath.startswith("//"):
+            xpath = ".\\" + xpath
         node = element.find(xpath, namespaces=self.nsmap)
         result = node.text if node is not None else None
         logging.debug(f'Finding text, XPath: {xpath}, Result: {result}')
         return result
 
     def find_attribute(self, element, xpath, attribute, default=None):
+        if xpath.startswith("//"):
+            xpath = ".\\" + xpath
         node = element.find(xpath, namespaces=self.nsmap)
         return node.get(attribute) if node is not None else default
 
@@ -41,8 +47,8 @@ class TEDtoOCDSConverter:
         logging.info('TEDtoOCDSConverter initialized with mapping.')
 
     def get_dispatch_date_time(self, root):
-        issue_date = root.xpath("string(//cbc:IssueDate)", namespaces=self.parser.nsmap)
-        issue_time = root.xpath("string(//cbc:IssueTime)", namespaces=self.parser.nsmap)
+        issue_date = self.parser.find_text(root, ".//cbc:IssueDate")
+        issue_time = self.parser.find_text(root, ".//cbc:IssueTime")
         if issue_date and issue_time:
             return f"{issue_date}T{issue_time}"
         return None
@@ -77,46 +83,15 @@ class TEDtoOCDSConverter:
         form_type_code = self.parser.find_attribute(element, ".//cbc:NoticeTypeCode", "listName")
         return self.form_type_mapping.get(form_type_code, {'tags': [], 'tender_status': 'planned'})
 
-    def get_sustainability_details(self, element):
+    def parse_lots(self, element):
         lots = []
         lot_elements = element.findall(".//cac:ProcurementProjectLot", namespaces=self.parser.nsmap)
         for lot_element in lot_elements:
             lot_id = self.parser.find_text(lot_element, "./cbc:ID")
-            sustainability_info = self.parse_sustainability(lot_element.find("./cac:ProcurementProject", namespaces=self.parser.nsmap))
-            if sustainability_info:
-                lots.append({
-                    "id": lot_id,
-                    "hasSustainability": True,
-                    "sustainability": sustainability_info
-                })
+            if lot_id:
+                lot = {"id": lot_id}  # Placeholder for extended information
+                lots.append(lot)
         return lots
-
-    def parse_sustainability(self, procurement_project_element):
-        sustainability_fields = [
-            "awardCriteria", "contractPerformanceConditions",
-            "selectionCriteria", "technicalSpecifications"
-        ]
-        additional_types = procurement_project_element.findall(
-            "./cac:ProcurementAdditionalType/cbc:ProcurementTypeCode",
-            namespaces=self.parser.nsmap
-        )
-        strategic_procurement_mapping = {
-            'env-imp': 'environmental',
-            'inn-pur': 'economic.innovativePurchase',
-            'soc-obj': 'social',
-            'none': None
-        }
-        sustainability_goals = []
-        for add_type in additional_types:
-            code = add_type.text
-            if code in strategic_procurement_mapping:
-                if strategic_procurement_mapping[code]:
-                    sustainability_goals.append({
-                        "goal": strategic_procurement_mapping[code],
-                        "strategies": sustainability_fields
-                    })
-
-        return sustainability_goals if sustainability_goals else None
 
     def convert_tender_to_ocds(self):
         root = self.parser.root
@@ -132,10 +107,9 @@ class TEDtoOCDSConverter:
                 "id": self.parser.find_text(root, ".//cbc:ContractFolderID"),
                 "legalBasis": self.get_legal_basis(root),
                 "status": form_type['tender_status'],
-                "lots": self.get_sustainability_details(root)
+                "lots": self.parse_lots(root)
             },
-            "tags": form_type['tags'],
-            "bids": {}
+            "tags": form_type['tags']
         }
         cleaned_release = self.clean_release_structure(release)
         logging.info('Conversion to OCDS format completed.')
@@ -149,6 +123,7 @@ class TEDtoOCDSConverter:
             return [self.clean_release_structure(v) for v in data if v is not None]
         return data
 
+
 def convert_ted_to_ocds(xml_file):
     logging.basicConfig(level=logging.INFO)
     logging.info(f'Starting conversion for file: {xml_file}')
@@ -161,6 +136,6 @@ def convert_ted_to_ocds(xml_file):
     return result
 
 # Example usage
-xml_file = "2023-100863.xml"
+xml_file = "2023-653367.xml"
 ocds_json = convert_ted_to_ocds(xml_file)
 print(ocds_json)
