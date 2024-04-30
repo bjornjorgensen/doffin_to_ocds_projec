@@ -283,35 +283,42 @@ class TEDtoOCDSConverter:
         lots = []
         lot_elements = element.findall(".//cac:ProcurementProjectLot", namespaces=self.parser.nsmap)
         for lot_element in lot_elements:
-            lot_id = self.parser.find_text(lot_element, "./cbc:ID")
-            lot_title = self.parser.find_text(lot_element, ".//cac:ProcurementProject/cbc:Name", namespaces=self.parser.nsmap)
-            start_date = self.parser.find_text(lot_element, ".//cac:PlannedPeriod/cbc:StartDate", namespaces=self.parser.nsmap)
-            end_date = self.parser.find_text(lot_element, ".//cac:PlannedPeriod/cbc:EndDate", namespaces=self.parser.nsmap)
-            options_description = self.parser.find_text(lot_element, "./cac:ProcurementProject/cac:ContractExtension/cbc:OptionsDescription", namespaces=self.parser.nsmap)
-            
-            gpa_indicator = self.parser.find_text(lot_element, "./cac:TenderingProcess/cbc:GovernmentAgreementConstraintIndicator", namespaces=self.parser.nsmap) == 'true'
-            
-            lot = {
-                "id": lot_id,
-                "title": lot_title,  # Include the title in the lot output
-                "items": self.parse_items(lot_element)
-            }
-
-            if gpa_indicator:
-                lot['coveredBy'] = ["GPA"]
-
-            if start_date:
-                start_iso_date = parse_iso_date(start_date).isoformat()
-                lot['contractPeriod'] = {"startDate": start_iso_date}
-            if end_date:
-                end_iso_date = parse_iso_date(end_date).isoformat()
-                lot['contractPeriod'] = lot.get('contractPeriod', {})
-                lot['contractPeriod']['endDate'] = end_iso_date
-            if options_description:
-                lot['options'] = {"description": options_description}
-
+            lot = self.parse_single_lot(lot_element)
             lots.append(lot)
         return lots
+
+    def parse_single_lot(self, lot_element):
+        lot_id = self.parser.find_text(lot_element, "./cbc:ID")
+        lot_title = self.parser.find_text(lot_element, ".//cac:ProcurementProject/cbc:Name", namespaces=self.parser.nsmap)
+        gpa_indicator = self.parser.find_text(lot_element, "./cac:TenderingProcess/cbc:GovernmentAgreementConstraintIndicator", namespaces=self.parser.nsmap) == 'true'
+        lot = {
+            "id": lot_id,
+            "title": lot_title,  # Include the title in the lot output
+            "items": self.parse_items(lot_element)
+        }
+
+        if gpa_indicator:
+            lot['coveredBy'] = ["GPA"]
+
+        contract_period = self.parse_contract_period_for_lot(lot_element)
+        if contract_period:
+            lot['contractPeriod'] = contract_period
+
+        options_description = self.parser.find_text(lot_element, "./cac:ProcurementProject/cac:ContractExtension/cbc:OptionsDescription", namespaces=self.parser.nsmap)
+        if options_description:
+            lot['options'] = {"description": options_description}
+
+        return lot
+
+    def parse_contract_period_for_lot(self, lot_element):
+        start_date = self.parser.find_text(lot_element, ".//cac:PlannedPeriod/cbc:StartDate", namespaces=self.parser.nsmap)
+        end_date = self.parser.find_text(lot_element, ".//cac:PlannedPeriod/cbc:EndDate", namespaces=self.parser.nsmap)
+        contract_period = {}
+        if start_date:
+            contract_period['startDate'] = parse_iso_date(start_date).isoformat()
+        if end_date:
+            contract_period['endDate'] = parse_iso_date(end_date).isoformat()
+        return contract_period if contract_period else None
 
     def parse_contract_period(self, root):
         start_date = self.parser.find_text(root, ".//cac:ProcurementProject/cac:PlannedPeriod/cbc:StartDate", namespaces=self.parser.nsmap)
