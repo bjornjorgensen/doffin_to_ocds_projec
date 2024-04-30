@@ -281,19 +281,41 @@ class TEDtoOCDSConverter:
 
     def parse_lots(self, element):
         lots = []
+        tender_value_aggregate = {
+            "amount": 0,
+            "currency": None
+        }
+        part_lot_found = False  # Tracker for 'Part' flagged lots
+
         lot_elements = element.findall(".//cac:ProcurementProjectLot", namespaces=self.parser.nsmap)
         for lot_element in lot_elements:
             lot = self.parse_single_lot(lot_element)
             lots.append(lot)
             
-            # Handle lot groups (BT-27)
+            # Handle lot groups (if applicable)
             lot_group = self.parse_lot_group(lot_element)
             if lot_group:
                 if 'lotGroups' not in lot:
                     lot['lotGroups'] = []
                 lot['lotGroups'].append(lot_group)
-        
-        return lots
+
+            # Check if the lot was marked as a 'Part'
+            if lot.get('isPartScheme'):
+                part_lot_found = True
+                if lot['value']['amount'] is not None:
+                    if tender_value_aggregate['currency'] is None:
+                        tender_value_aggregate['currency'] = lot['value']['currency']
+                    if tender_value_aggregate['currency'] == lot['value']['currency']:
+                        tender_value_aggregate['amount'] += lot['value']['amount']
+                    else:
+                        # Handle currency mismatch case if necessary; simplified example assumes same currency
+                        print("Currency mismatch; additional logic required.")
+
+        # If there was a 'Part' lot and valid calculations, attach at tender level
+        if part_lot_found and tender_value_aggregate['amount'] > 0:
+            return lots, tender_value_aggregate
+
+        return lots, None
     
     def parse_lot_group(self, lot_element):
         lot_id = self.parser.find_attribute(lot_element, "./cbc:ID", "schemeName")
@@ -314,7 +336,7 @@ class TEDtoOCDSConverter:
         lot_id = self.parser.find_text(lot_element, "./cbc:ID")
         lot_title = self.parser.find_text(lot_element, ".//cac:ProcurementProject/cbc:Name", namespaces=self.parser.nsmap)
         gpa_indicator = self.parser.find_text(lot_element, "./cac:TenderingProcess/cbc:GovernmentAgreementConstraintIndicator", namespaces=self.parser.nsmap) == 'true'
-    
+
         # Fetching the estimated overall contract amount for the lot
         estimated_value_element = lot_element.find("./cac:ProcurementProject/cac:RequestedTenderTotal/cbc:EstimatedOverallContractAmount", namespaces=self.parser.nsmap)
         estimated_value = estimated_value_element.text if estimated_value_element is not None else None
@@ -323,13 +345,17 @@ class TEDtoOCDSConverter:
         lot = {
             "id": lot_id,
             "title": lot_title,
-            "items": self.parse_items(lot_element),
-            "value": {
-                "amount": float(estimated_value) if estimated_value else None,
-                "currency": currency_id
-            }
+            "items": self.parse_items(lot_element)
         }
 
+        # Only add value if an estimated value is provided
+        if estimated_value is not None and currency_id is not None:
+            lot['value'] = {
+                "amount": float(estimated_value),
+                "currency": currency_id
+            }
+
+        # Include 'coveredBy' key only if the gpa_indicator is true
         if gpa_indicator:
             lot['coveredBy'] = ["GPA"]
 
@@ -534,18 +560,14 @@ class TEDtoOCDSConverter:
         # Parsing form type, parties, lots, legal basis, and languages
         form_type = self.get_form_type(root)
         parties = self.gather_party_info(root)
-        lots = self.parse_lots(root)
+        lots, aggregated_part_value = self.parse_lots(root)
         legal_basis = self.get_legal_basis(root)
         languages = self.fetch_notice_languages(root)
 
         # Now include parsing for tender values (BT-720)
         bids_details = self.parse_tender_values(root)
-        if bids_details:
-            bids_section = {
-                "details": bids_details
-            }
 
-        # structure the OCDS release
+        # Structure the OCDS release
         release = {
             "id": self.parser.find_text(root, "./cbc:ID"),
             "ocid": ocid,
@@ -562,11 +584,17 @@ class TEDtoOCDSConverter:
                 "lots": lots
             },
             "relatedProcesses": self.parse_related_processes(root),
-            "awards": self.awards  # This assumes we are collecting awards data as we parse
+            "awards": self.awards  # This assumes we are collecting awards data as we process
         }
 
+        # Conditionally add the aggregate part lot value to the tender section
+        if aggregated_part_value:
+            release["tender"]["value"] = aggregated_part_value
+
         if bids_details:
-            release['bids'] = bids_section
+            release['bids'] = {
+                "details": bids_details
+            }
 
         # Clean and return the final structured Release
         cleaned_release = self.clean_release_structure(release)
