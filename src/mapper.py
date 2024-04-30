@@ -280,9 +280,23 @@ class TEDtoOCDSConverter:
             start_date = self.parser.find_text(lot_element, ".//cac:PlannedPeriod/cbc:StartDate", namespaces=self.parser.nsmap)
             end_date = self.parser.find_text(lot_element, ".//cac:PlannedPeriod/cbc:EndDate", namespaces=self.parser.nsmap)
             options_description = self.parser.find_text(lot_element, "./cac:ProcurementProject/cac:ContractExtension/cbc:OptionsDescription", namespaces=self.parser.nsmap)
-
+            
             lot = {"id": lot_id, "title": lot_title}
 
+            # Handling previous notice identifier based on OPP-090-Procedure
+            previous_notice_ids = lot_element.findall(".//cac:TenderingProcess/cac:NoticeDocumentReference/cbc:ID[@schemeName='notice-id-ref']", namespaces=self.parser.nsmap)
+            for index, notid in enumerate(previous_notice_ids, start=1):
+                related_process = {
+                    "id": str(index),  # Creating incremental IDs based on the procedure being repeated
+                    "relationship": ["planning"],
+                    "scheme": "eu-oj",
+                    "identifier": notid.text  # Extract the ID
+                }
+                if "relatedProcesses" not in lot:
+                    lot['relatedProcesses'] = []
+                lot['relatedProcesses'].append(related_process)
+
+            # Date handling
             if start_date:
                 start_iso_date = parse_iso_date(start_date).isoformat()
                 lot['contractPeriod'] = {"startDate": start_iso_date}
@@ -375,31 +389,47 @@ class TEDtoOCDSConverter:
     
     def convert_tender_to_ocds(self):
         root = self.parser.root
-        form_type = self.get_form_type(root)
+        ocid = "ocds-prefix-" + str(uuid.uuid4())  # Generate a new OCDS ID
         dispatch_datetime = self.get_dispatch_date_time(root)
-        tender_title = self.parser.find_text(root, ".//cac:ProcurementProject/cbc:Name",
-                                             namespaces=self.parser.nsmap) 
-        additional_procurement_categories = self.parse_additional_procurement_categories(root)
-        contract_period = self.parse_contract_period(root)
+        tender_title = self.parser.find_text(root, ".//cac:ProcurementProject/cbc:Name", namespaces=self.parser.nsmap)
+
+        # Logging for debug purposes
+        logging.debug(f"Dispatch Date and Time: {dispatch_datetime}")
+        logging.debug(f"Tender Title: {tender_title}")
+
+        # Parsing form type, parties, lots, legal basis, and languages
+        form_type = self.get_form_type(root)
+        parties = self.gather_party_info(root)
+        lots = self.parse_lots(root)
+        legal_basis = self.get_legal_basis(root)
         languages = self.fetch_notice_languages(root)
+
+        # Parse related processes (references to previous notices, etc.)
+        related_processes = self.parse_related_processes(root)
+
+        # Structure the OCDS release
         release = {
             "id": self.parser.find_text(root, "./cbc:ID"),
-            "initiationType": "tender",
-            "ocid": "ocds-prefix-" + str(uuid.uuid4()),
+            "ocid": ocid,
             "date": dispatch_datetime,
-            "parties": self.gather_party_info(root),
+            "initiationType": "tender",
+            "tags": form_type['tags'],
+            "parties": parties,
             "tender": {
                 "id": self.parser.find_text(root, ".//cbc:ContractFolderID"),
-                "legalBasis": self.get_legal_basis(root),
                 "status": form_type['tender_status'],
                 "title": tender_title,
-                "lots": self.parse_lots(root),
-                "additionalProcurementCategories": additional_procurement_categories,
-                "contractPeriod": contract_period,
-                "language": languages, 
-            },
-            "tags": form_type['tags']
+                "legalBasis": legal_basis,
+                "language": languages,
+                "lots": lots
+            }
         }
+
+        # Include related processes if any
+        if related_processes:
+            release['relatedProcesses'] = related_processes
+
+        # Clean and return the final structured Release
         cleaned_release = self.clean_release_structure(release)
         logging.info('Conversion to OCDS format completed.')
         return cleaned_release
@@ -411,7 +441,21 @@ class TEDtoOCDSConverter:
         elif isinstance(data, list):
             return [self.clean_release_structure(v) for v in data if v is not None]
         return data
-
+    
+    def parse_related_processes(self, root):
+        related_processes = []
+        notice_refs = root.findall(".//cac:NoticeDocumentReference", namespaces=self.parser.nsmap)
+        for ref in notice_refs:
+            notice_id_value = ref.find("./cbc:ID", namespaces=self.parser.nsmap)
+            if notice_id_value is not None:
+                scheme_name = notice_id_value.get('schemeName', 'undefined-scheme')
+                notice_id = notice_id_value.text
+                related_processes.append({
+                    "id": notice_id,
+                    "relationship": ["planning"],
+                    "scheme": scheme_name
+                })
+        return related_processes
     
 
 def convert_ted_to_ocds(xml_file):
@@ -426,6 +470,6 @@ def convert_ted_to_ocds(xml_file):
     return result
 
 # Example usage
-xml_file = "2024-100506.xml"
+xml_file = "2022-319091.xml"
 ocds_json = convert_ted_to_ocds(xml_file)
 print(ocds_json)
