@@ -265,13 +265,21 @@ class TEDtoOCDSConverter:
         lot_elements = element.findall(".//cac:ProcurementProjectLot", namespaces=self.parser.nsmap)
         for lot_element in lot_elements:
             lot_id = self.parser.find_text(lot_element, "./cbc:ID")
-            lot_title = self.parser.find_text(lot_element,
-                                              ".//cac:ProcurementProject/cbc:Name",
-                                              namespaces=self.parser.nsmap)
+            lot_title = self.parser.find_text(lot_element, ".//cac:ProcurementProject/cbc:Name", namespaces=self.parser.nsmap)
+            additional_categories = lot_element.findall(".//cac:ProcurementProject/cac:ProcurementAdditionalType/cbc:ProcurementTypeCode[@listName='contract-nature']", namespaces=self.parser.nsmap)
+            additional_categories = [cat.text for cat in additional_categories]
+
             if lot_id:
-                lot = {"id": lot_id, "title": lot_title}
+                lot = {"id": lot_id, "title": lot_title, "additionalProcurementCategories": additional_categories}
                 lots.append(lot)
         return lots
+    
+    def parse_additional_procurement_categories(self, element):
+        categories = []
+        categories_elements = element.findall(".//cac:ProcurementProject/cac:ProcurementAdditionalType/cbc:ProcurementTypeCode[@listName='contract-nature']", namespaces=self.parser.nsmap)
+        for category in categories_elements:
+            categories.append(category.text)
+        return categories
 
     def convert_tender_to_ocds(self):
         root = self.parser.root
@@ -279,6 +287,7 @@ class TEDtoOCDSConverter:
         dispatch_datetime = self.get_dispatch_date_time(root)
         tender_title = self.parser.find_text(root, ".//cac:ProcurementProject/cbc:Name",
                                              namespaces=self.parser.nsmap) 
+        additional_procurement_categories = self.parse_additional_procurement_categories(root)
         release = {
             "id": self.parser.find_text(root, "./cbc:ID"),
             "initiationType": "tender",
@@ -290,7 +299,8 @@ class TEDtoOCDSConverter:
                 "legalBasis": self.get_legal_basis(root),
                 "status": form_type['tender_status'],
                 "title": tender_title,
-                "lots": self.parse_lots(root)
+                "lots": self.parse_lots(root),
+                "additionalProcurementCategories": additional_procurement_categories
             },
             "tags": form_type['tags']
         }
@@ -318,6 +328,6 @@ def convert_ted_to_ocds(xml_file):
     return result
 
 # Example usage
-xml_file = "2022-366668.xml"
+xml_file = "2023-100863.xml"
 ocds_json = convert_ted_to_ocds(xml_file)
 print(ocds_json)
