@@ -291,7 +291,11 @@ class TEDtoOCDSConverter:
             
             gpa_indicator = self.parser.find_text(lot_element, "./cac:TenderingProcess/cbc:GovernmentAgreementConstraintIndicator", namespaces=self.parser.nsmap) == 'true'
             
-            lot = {"id": lot_id, "items": self.parse_items(lot_element)}
+            lot = {
+                "id": lot_id,
+                "title": lot_title,  # Include the title in the lot output
+                "items": self.parse_items(lot_element)
+            }
 
             if gpa_indicator:
                 lot['coveredBy'] = ["GPA"]
