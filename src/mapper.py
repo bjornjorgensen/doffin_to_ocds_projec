@@ -2,8 +2,19 @@ import logging
 import uuid
 import json
 from lxml import etree
+from datetime import datetime
 
 
+def parse_iso_date(date_str):
+    """
+    Custom parser for handling ISO dates with timezone in '+00:00' format.
+    """
+    try:
+        return datetime.strptime(date_str, "%Y-%m-%dT%H:%M:%S%z")
+    except ValueError:
+        # Try without time part
+        return datetime.strptime(date_str, "%Y-%m-%d%z")
+    
 class XMLParser:
     def __init__(self, xml_file):
         self.tree = etree.parse(xml_file)
@@ -266,13 +277,33 @@ class TEDtoOCDSConverter:
         for lot_element in lot_elements:
             lot_id = self.parser.find_text(lot_element, "./cbc:ID")
             lot_title = self.parser.find_text(lot_element, ".//cac:ProcurementProject/cbc:Name", namespaces=self.parser.nsmap)
-            additional_categories = lot_element.findall(".//cac:ProcurementProject/cac:ProcurementAdditionalType/cbc:ProcurementTypeCode[@listName='contract-nature']", namespaces=self.parser.nsmap)
-            additional_categories = [cat.text for cat in additional_categories]
+            start_date = self.parser.find_text(lot_element, ".//cac:PlannedPeriod/cbc:StartDate", namespaces=self.parser.nsmap)
+            end_date = self.parser.find_text(lot_element, ".//cac:PlannedPeriod/cbc:EndDate", namespaces=self.parser.nsmap)
 
-            if lot_id:
-                lot = {"id": lot_id, "title": lot_title, "additionalProcurementCategories": additional_categories}
-                lots.append(lot)
+            lot = {"id": lot_id, "title": lot_title}
+
+            if start_date:
+                start_iso_date = parse_iso_date(start_date).isoformat()
+                lot['contractPeriod'] = {"startDate": start_iso_date}
+            if end_date:
+                end_iso_date = parse_iso_date(end_date).isoformat()
+                lot['contractPeriod'] = lot.get('contractPeriod', {})
+                lot['contractPeriod']['endDate'] = end_iso_date
+
+            lots.append(lot)
         return lots
+
+    def parse_contract_period(self, root):
+        start_date = self.parser.find_text(root, ".//cac:ProcurementProject/cac:PlannedPeriod/cbc:StartDate", namespaces=self.parser.nsmap)
+        end_date = self.parser.find_text(root, ".//cac:ProcurementProject/cac:PlannedPeriod/cbc:EndDate", namespaces=self.parser.nsmap)
+
+        contract_period = {}
+        if start_date:
+            contract_period['startDate'] = parse_iso_date(start_date).isoformat()
+        if end_date:
+            contract_period['endDate'] = parse_iso_date(end_date).isoformat()
+            
+        return contract_period
     
     def parse_additional_procurement_categories(self, element):
         categories = []
@@ -288,6 +319,7 @@ class TEDtoOCDSConverter:
         tender_title = self.parser.find_text(root, ".//cac:ProcurementProject/cbc:Name",
                                              namespaces=self.parser.nsmap) 
         additional_procurement_categories = self.parse_additional_procurement_categories(root)
+        contract_period = self.parse_contract_period(root)
         release = {
             "id": self.parser.find_text(root, "./cbc:ID"),
             "initiationType": "tender",
@@ -300,7 +332,8 @@ class TEDtoOCDSConverter:
                 "status": form_type['tender_status'],
                 "title": tender_title,
                 "lots": self.parse_lots(root),
-                "additionalProcurementCategories": additional_procurement_categories
+                "additionalProcurementCategories": additional_procurement_categories,
+                "contractPeriod": contract_period
             },
             "tags": form_type['tags']
         }
@@ -328,6 +361,6 @@ def convert_ted_to_ocds(xml_file):
     return result
 
 # Example usage
-xml_file = "2023-100863.xml"
+xml_file = "2023-100860.xml"
 ocds_json = convert_ted_to_ocds(xml_file)
 print(ocds_json)
