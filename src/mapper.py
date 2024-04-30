@@ -74,6 +74,17 @@ class TEDtoOCDSConverter:
         company_id = self.parser.find_text(element, company_id_xpath, namespaces=self.parser.nsmap)
         return {"id": identifier, "name": name, "identifier": {"id": company_id, "scheme": "internal"}} if name else {}
     
+    def fetch_bt502_contact_point(self, org_element):
+        contact_point_xpath = "./efac:Company/cac:Contact/cbc:Name"
+        contact_name = self.parser.find_text(org_element, contact_point_xpath, namespaces=self.parser.nsmap)
+        if contact_name:
+            return {
+                "contactPoint": {
+                    "name": contact_name
+                }
+            }
+        return {}
+    
     def get_dispatch_date_time(self, root):
         issue_date = self.parser.find_text(root, ".//cbc:IssueDate")
         issue_time = self.parser.find_text(root, ".//cbc:IssueTime")
@@ -101,69 +112,61 @@ class TEDtoOCDSConverter:
     def gather_party_info(self, root_element):
         parties = []
 
-        # Fetch parties using specialized functions for BT-500 organization company and touchpoint
+        # Process the touchpoint and company organizations from BT-500
         company_party = self.fetch_bt500_company_organization(root_element)
         if company_party:
             party_info = {
                 "id": company_party.get("id"),
                 "name": company_party.get("name"),
-                "roles": ["supplier"]  # Assuming the role here, adjust as needed
+                "roles": ["supplier"]  # Assuming the role here, adjust as applicable
             }
             if "additionalIdentifiers" in company_party:
                 party_info["additionalIdentifiers"] = company_party["additionalIdentifiers"]
             parties.append(party_info)
         else:
-            logging.warning('No company organization data found.')
-        
+            logging.warning('No company organization data found from BT-500.')
+
         touchpoint_party = self.fetch_bt500_touchpoint_organization(root_element)
         if touchpoint_party:
             parties.append({
                 "id": touchpoint_party.get("id"),
                 "name": touchpoint_party.get("name"),
-                "roles": ["supplier"]  # Assuming the role here, adjust as needed
+                "roles": ["contact"]  # Assuming the role here, adjust as needed
             })
         else:
-            logging.warning('No touchpoint organization data found.')
-        
-        # Fetch standard contracting parties from the element provided
+            logging.warning('No touchpoint organization data found from BT-500.')
+
+        # Fetch organization elements, possibly include contact point as per BT-502
+        organization_elements = root_element.findall(".//ext:UBLExtensions/ext:UBLExtension/ext:ExtensionContent/efext:EformsExtension/efac:Organizations/efac:Organization", namespaces=self.parser.nsmap)
+        for org_element in organization_elements:
+            org_id = self.parser.find_text(org_element, "./efac:Company/cac:PartyIdentification/cbc:ID", namespaces=self.parser.nsmap)
+            if org_id:
+                org_info = {
+                    "id": org_id,
+                    "roles": ["supplier"]  # Assuming the role here
+                }
+                # Fetch the organization name if available
+                name = self.parser.find_text(org_element, ".//cac:PartyName/cbc:Name", namespaces=self.parser.nsmap)
+                if name:
+                    org_info["name"] = name
+                
+                # Fetch contact point using the new function for BT-502
+                contact_point = self.fetch_bt502_contact_point(org_element)
+                if contact_point:
+                    org_info.update(contact_point)
+                
+                parties.append(org_info)
+
+        # Fetch standard contracting parties
         party_elements = root_element.findall(".//cac:ContractingParty", namespaces=self.parser.nsmap)
         for party_element in party_elements:
             party = party_element.find(".//cac:Party", namespaces=self.parser.nsmap)
             party_id = self.parser.find_text(party, "./cac:PartyIdentification/cbc:ID")
-            
-            # Attempt fetching the activity code
-            activity_code_element = party_element.find(".//cac:ContractingActivity/cbc:ActivityTypeCode[@listName='authority-activity']", namespaces=self.parser.nsmap)
-            activity_code = activity_code_element.text if activity_code_element is not None else None
-
-            logging.debug(f'Extracted activity code for party ID {party_id}: {activity_code}')
-
             if party_id:
                 info = {"id": party_id, "roles": ["buyer"]}
-
-                # Find the name of the party
                 party_name = self.parser.find_text(party, "./cac:PartyName/cbc:Name")
-                
                 if party_name:
                     info["name"] = party_name
-                
-                # Set up additional details if an activity code was found
-                if activity_code:
-                    activity_description = self.get_activity_description(activity_code)
-                    scheme, code, description = self.map_activity_code(activity_code, activity_description)
-                    info["details"] = {
-                        "classifications": [
-                            {
-                                "scheme": scheme,
-                                "id": code,
-                                "description": description
-                            }
-                        ]
-                    }
-                    logging.debug(f'Party details for ID {party_id}: {info["details"]}')
-                else:
-                    info["details"] = {}
-                    logging.warning(f'No activity code found for party ID {party_id}')
-                
                 parties.append(info)
             else:
                 logging.warning('Party element found without an ID!')
