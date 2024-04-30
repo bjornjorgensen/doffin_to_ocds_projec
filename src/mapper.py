@@ -553,21 +553,20 @@ class TEDtoOCDSConverter:
         dispatch_datetime = self.get_dispatch_date_time(root)
         tender_title = self.parser.find_text(root, ".//cac:ProcurementProject/cbc:Name", namespaces=self.parser.nsmap)
 
-        # Logging for debug purposes
-        logging.debug(f"Dispatch Date and Time: {dispatch_datetime}")
-        logging.debug(f"Tender Title: {tender_title}")
-
-        # Parsing form type, parties, lots, legal basis, and languages
+        # Fetching the form type, parties, and additional elements
         form_type = self.get_form_type(root)
         parties = self.gather_party_info(root)
         lots, aggregated_part_value = self.parse_lots(root)
         legal_basis = self.get_legal_basis(root)
         languages = self.fetch_notice_languages(root)
 
-        # Now include parsing for tender values (BT-720)
+        # Fetch estimated total tender value (according to BT-27)
+        tender_estimated_value = self.fetch_tender_estimated_value(root)
+
+        # Parsing tender values which might include results from specific lots or tender segments
         bids_details = self.parse_tender_values(root)
 
-        # Structure the OCDS release
+        # Assembling the OCDS release data structure
         release = {
             "id": self.parser.find_text(root, "./cbc:ID"),
             "ocid": ocid,
@@ -584,19 +583,29 @@ class TEDtoOCDSConverter:
                 "lots": lots
             },
             "relatedProcesses": self.parse_related_processes(root),
-            "awards": self.awards  # This assumes we are collecting awards data as we process
+            "awards": self.awards  # Collecting awards data as the process proceeds
         }
 
-        # Conditionally add the aggregate part lot value to the tender section
-        if aggregated_part_value:
-            release["tender"]["value"] = aggregated_part_value
+        # Adding the estimated value to the tender, if it is available
+        if tender_estimated_value:
+            release["tender"]["value"] = tender_estimated_value
 
+        # Conditionally adding the aggregated 'part' lot value
+        if aggregated_part_value:
+            if "value" in release["tender"]:
+                # Updating the amount to include parts only if the currencies match
+                if release["tender"]["value"]["currency"] == aggregated_part_value["currency"]:
+                    release["tender"]["value"]["amount"] += aggregated_part_value["amount"]
+            else:
+                release["tender"]["value"] = aggregated_part_value
+
+        # Attach bids detail if available
         if bids_details:
             release['bids'] = {
                 "details": bids_details
             }
 
-        # Clean and return the final structured Release
+        # Clean and return the final structured OCDS release
         cleaned_release = self.clean_release_structure(release)
         logging.info('Conversion to OCDS format completed.')
         return cleaned_release
@@ -624,6 +633,13 @@ class TEDtoOCDSConverter:
                 })
         return related_processes
     
+    def fetch_tender_estimated_value(self, root):
+       value_element = root.find(".//cac:ProcurementProject/cac:RequestedTenderTotal/cbc:EstimatedOverallContractAmount", namespaces=self.parser.nsmap)
+       if value_element is not None:
+           amount = float(value_element.text) if value_element.text else None
+           currency = value_element.get('currencyID')
+           return {"amount": amount, "currency": currency}
+       return None
 
 def convert_ted_to_ocds(xml_file):
     logging.basicConfig(level=logging.INFO)  # Adjust the logging level as needed
