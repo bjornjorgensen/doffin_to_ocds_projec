@@ -40,6 +40,13 @@ class XMLParser:
             xpath = ".\\" + xpath
         node = element.find(xpath, namespaces=self.nsmap)
         return node.get(attribute) if node is not None else default
+    
+    def find_node(self, element, xpath, namespaces=None):
+        node = element.find(xpath, namespaces=namespaces if namespaces else self.nsmap)
+        return node
+
+    def find_nodes(self, element, xpath, namespaces=None):
+        return element.findall(xpath, namespaces=namespaces if namespaces else self.nsmap)
 
 class TEDtoOCDSConverter:
     def __init__(self, parser):
@@ -282,7 +289,7 @@ class TEDtoOCDSConverter:
             end_date = self.parser.find_text(lot_element, ".//cac:PlannedPeriod/cbc:EndDate", namespaces=self.parser.nsmap)
             options_description = self.parser.find_text(lot_element, "./cac:ProcurementProject/cac:ContractExtension/cbc:OptionsDescription", namespaces=self.parser.nsmap)
             
-            lot = {"id": lot_id, "title": lot_title}
+            lot = {"id": lot_id, "items": self.parse_items(lot_element)}
 
             # Handling previous notice identifier based on OPP-090-Procedure
             previous_notice_ids = lot_element.findall(".//cac:TenderingProcess/cac:NoticeDocumentReference/cbc:ID[@schemeName='notice-id-ref']", namespaces=self.parser.nsmap)
@@ -440,6 +447,44 @@ class TEDtoOCDSConverter:
         if not found:
             self.awards.append(new_award)
 
+    def parse_classifications(self, project_element):
+        classifications = []
+        
+        # Main classifications
+        main_classifications = self.parser.find_nodes(project_element, "./cac:MainCommodityClassification")
+        for classification in main_classifications:
+            class_code = self.parser.find_text(classification, "./cbc:ItemClassificationCode")
+            class_scheme = self.parser.find_attribute(classification, "./cbc:ItemClassificationCode", "listName")
+            if class_code and class_scheme:
+                classifications.append({
+                    "id": class_code,
+                    "scheme": class_scheme.upper(),  # as per requirement to capitalize the scheme name
+                })
+
+        # Additional classifications
+        additional_classifications = self.parser.find_nodes(project_element, "./cac:AdditionalCommodityClassification")
+        for classification in additional_classifications:
+            class_code = self.parser.find_text(classification, "./cbc:ItemClassificationCode")
+            if class_code:
+                classifications.append({
+                    "id": class_code,
+                    "scheme": "CPV",  # Assuming CPV for additional classifications
+                })
+
+        return classifications
+    
+    def parse_items(self, lot_element):
+        items = []
+        project_element = self.parser.find_nodes(lot_element, "./cac:ProcurementProject")[0]
+        classifications = self.parse_classifications(project_element)
+        
+        for idx, classification in enumerate(classifications, 1):
+            items.append({
+                "id": str(idx),
+                "classification": classification,
+                "relatedLot": self.parser.find_text(lot_element, "./cbc:ID")
+            })
+        return items
 
     def convert_tender_to_ocds(self):
         root = self.parser.root
@@ -518,17 +563,19 @@ class TEDtoOCDSConverter:
     
 
 def convert_ted_to_ocds(xml_file):
-    logging.basicConfig(level=logging.DEBUG)
-    logging.info(f'Starting conversion for file: {xml_file}')
-    parser = XMLParser(xml_file)
-    converter = TEDtoOCDSConverter(parser)
-    release_info = converter.convert_tender_to_ocds()
-    releases = [release_info]
-    result = json.dumps({"releases": releases}, indent=2, ensure_ascii=False)
-    logging.info('Conversion complete, output prepared.')
-    return result
+    logging.basicConfig(level=logging.INFO)  # Adjust the logging level as needed
+    try:
+        parser = XMLParser(xml_file)
+        converter = TEDtoOCDSConverter(parser)
+        release_info = converter.convert_tender_to_ocds()
+        result = json.dumps({"releases": [release_info]}, indent=2, ensure_ascii=False)
+        return result
+    except Exception as e:
+        logging.error(f"An error occurred: {e}")
+        raise
 
 # Example usage
 xml_file = "2022-319091.xml"
 ocds_json = convert_ted_to_ocds(xml_file)
 print(ocds_json)
+
