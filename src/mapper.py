@@ -285,8 +285,31 @@ class TEDtoOCDSConverter:
         for lot_element in lot_elements:
             lot = self.parse_single_lot(lot_element)
             lots.append(lot)
+            
+            # Handle lot groups (BT-27)
+            lot_group = self.parse_lot_group(lot_element)
+            if lot_group:
+                if 'lotGroups' not in lot:
+                    lot['lotGroups'] = []
+                lot['lotGroups'].append(lot_group)
+        
         return lots
+    
+    def parse_lot_group(self, lot_element):
+        lot_id = self.parser.find_attribute(lot_element, "./cbc:ID", "schemeName")
+        if lot_id == 'LotsGroup':
+            estimated_value = self.parser.find_text(lot_element, ".//cac:ProcurementProject/cac:RequestedTenderTotal/cbc:EstimatedOverallContractAmount", namespaces=self.parser.nsmap)
+            currency_id = self.parser.find_attribute(lot_element, ".//cac:ProcurementProject/cac:RequestedTenderTotal/cbc:EstimatedOverallContractAmount", "currencyID", namespaces=self.parser.nsmap)
 
+            return {
+                "id": self.parser.find_text(lot_element, "./cbc:ID", namespaces=self.parser.nsmap),
+                "maximumValue": {
+                    "amount": float(estimated_value) if estimated_value else None,
+                    "currency": currency_id
+                }
+            }
+        return None
+    
     def parse_single_lot(self, lot_element):
         lot_id = self.parser.find_text(lot_element, "./cbc:ID")
         lot_title = self.parser.find_text(lot_element, ".//cac:ProcurementProject/cbc:Name", namespaces=self.parser.nsmap)
