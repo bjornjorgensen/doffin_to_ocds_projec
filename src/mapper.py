@@ -191,8 +191,11 @@ class TEDtoOCDSConverter:
         lot_elements = element.findall(".//cac:ProcurementProjectLot", namespaces=self.parser.nsmap)
         for lot_element in lot_elements:
             lot_id = self.parser.find_text(lot_element, "./cbc:ID")
+            lot_title = self.parser.find_text(lot_element,
+                                              ".//cac:ProcurementProject/cbc:Name",
+                                              namespaces=self.parser.nsmap)
             if lot_id:
-                lot = {"id": lot_id}  # Placeholder for extended information
+                lot = {"id": lot_id, "title": lot_title}
                 lots.append(lot)
         return lots
 
@@ -200,6 +203,8 @@ class TEDtoOCDSConverter:
         root = self.parser.root
         form_type = self.get_form_type(root)
         dispatch_datetime = self.get_dispatch_date_time(root)
+        tender_title = self.parser.find_text(root, ".//cac:ProcurementProject/cbc:Name",
+                                             namespaces=self.parser.nsmap) 
         release = {
             "id": self.parser.find_text(root, "./cbc:ID"),
             "initiationType": "tender",
@@ -210,6 +215,7 @@ class TEDtoOCDSConverter:
                 "id": self.parser.find_text(root, ".//cbc:ContractFolderID"),
                 "legalBasis": self.get_legal_basis(root),
                 "status": form_type['tender_status'],
+                "title": tender_title,
                 "lots": self.parse_lots(root)
             },
             "tags": form_type['tags']
@@ -233,7 +239,7 @@ def convert_ted_to_ocds(xml_file):
     converter = TEDtoOCDSConverter(parser)
     release_info = converter.convert_tender_to_ocds()
     releases = [release_info]
-    result = json.dumps({"releases": releases}, indent=2)
+    result = json.dumps({"releases": releases}, indent=2, ensure_ascii=False)
     logging.info('Conversion complete, output prepared.')
     return result
 
