@@ -315,6 +315,64 @@ class TEDtoOCDSConverter:
             categories.append(category.text)
         return categories
 
+    def fetch_notice_languages(self, element):
+        """
+        Fetches the official languages of the notice from the element using BT-702(a).
+        Discards data from BT-702(b) as per the requirements.
+        """
+        languages = []
+        # Fetch the primary notice language code and map it
+        notice_language_code = self.parser.find_text(element, ".//cbc:NoticeLanguageCode")
+        if notice_language_code:
+            # Assuming a mapping function convert_language_code() that converts TED language codes to ISO 639-1
+            language_iso = self.convert_language_code(notice_language_code)
+            if language_iso:
+                languages.append(language_iso)
+
+        # The following fetches additional languages but is discarded as per BT-702(b)
+        # additional_languages = element.findall(".//cac:AdditionalNoticeLanguage/cbc:ID", namespaces=self.parser.nsmap)
+        # for lang in additional_languages:
+        #     language_iso = self.convert_language_code(lang.text)
+        #     if language_iso:
+        #         languages.append(language_iso)
+
+        return languages
+
+    @staticmethod
+    def convert_language_code(lang_code):
+        """
+        Convert a three-letter TED language code to a two-letter ISO 639-1 code.
+        The function needs actual mapping as per your context.
+        """
+        language_mapping = {
+        'ENG': 'en',  # English
+        'FRA': 'fr',  # French
+        'DEU': 'de',  # German
+        'ITA': 'it',  # Italian
+        'ESP': 'es',  # Spanish
+        'NLD': 'nl',  # Dutch
+        'BGR': 'bg',  # Bulgarian
+        'CES': 'cs',  # Czech
+        'DAN': 'da',  # Danish
+        'ELL': 'el',  # Greek
+        'EST': 'et',  # Estonian
+        'FIN': 'fi',  # Finnish
+        'HUN': 'hu',  # Hungarian
+        'HRV': 'hr',  # Croatian
+        'LAT': 'lv',  # Latvian
+        'LIT': 'lt',  # Lithuanian
+        'MLT': 'mt',  # Maltese
+        'POL': 'pl',  # Polish
+        'POR': 'pt',  # Portuguese
+        'RON': 'ro',  # Romanian
+        'SLK': 'sk',  # Slovak
+        'SLV': 'sl',  # Slovenian
+        'SWE': 'sv',  # Swedish
+        'NOR': 'no',  # Norwegian
+        'ISL': 'is'   # Icelandic (Iceland is not in the EU, similar to Norway and often included in joint data)
+        }
+        return language_mapping.get(lang_code.upper())
+    
     def convert_tender_to_ocds(self):
         root = self.parser.root
         form_type = self.get_form_type(root)
@@ -323,6 +381,7 @@ class TEDtoOCDSConverter:
                                              namespaces=self.parser.nsmap) 
         additional_procurement_categories = self.parse_additional_procurement_categories(root)
         contract_period = self.parse_contract_period(root)
+        languages = self.fetch_notice_languages(root)
         release = {
             "id": self.parser.find_text(root, "./cbc:ID"),
             "initiationType": "tender",
@@ -336,7 +395,8 @@ class TEDtoOCDSConverter:
                 "title": tender_title,
                 "lots": self.parse_lots(root),
                 "additionalProcurementCategories": additional_procurement_categories,
-                "contractPeriod": contract_period
+                "contractPeriod": contract_period,
+                "language": languages, 
             },
             "tags": form_type['tags']
         }
@@ -351,6 +411,8 @@ class TEDtoOCDSConverter:
         elif isinstance(data, list):
             return [self.clean_release_structure(v) for v in data if v is not None]
         return data
+
+    
 
 def convert_ted_to_ocds(xml_file):
     logging.basicConfig(level=logging.DEBUG)
