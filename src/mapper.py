@@ -279,6 +279,7 @@ class TEDtoOCDSConverter:
             lot_title = self.parser.find_text(lot_element, ".//cac:ProcurementProject/cbc:Name", namespaces=self.parser.nsmap)
             start_date = self.parser.find_text(lot_element, ".//cac:PlannedPeriod/cbc:StartDate", namespaces=self.parser.nsmap)
             end_date = self.parser.find_text(lot_element, ".//cac:PlannedPeriod/cbc:EndDate", namespaces=self.parser.nsmap)
+            options_description = self.parser.find_text(lot_element, "./cac:ProcurementProject/cac:ContractExtension/cbc:OptionsDescription", namespaces=self.parser.nsmap)
 
             lot = {"id": lot_id, "title": lot_title}
 
@@ -289,6 +290,8 @@ class TEDtoOCDSConverter:
                 end_iso_date = parse_iso_date(end_date).isoformat()
                 lot['contractPeriod'] = lot.get('contractPeriod', {})
                 lot['contractPeriod']['endDate'] = end_iso_date
+            if options_description:
+                lot['options'] = {"description": options_description}
 
             lots.append(lot)
         return lots
@@ -361,6 +364,6 @@ def convert_ted_to_ocds(xml_file):
     return result
 
 # Example usage
-xml_file = "2023-100860.xml"
+xml_file = "2024-100506.xml"
 ocds_json = convert_ted_to_ocds(xml_file)
 print(ocds_json)
