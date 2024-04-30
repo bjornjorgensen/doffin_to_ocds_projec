@@ -289,22 +289,13 @@ class TEDtoOCDSConverter:
             end_date = self.parser.find_text(lot_element, ".//cac:PlannedPeriod/cbc:EndDate", namespaces=self.parser.nsmap)
             options_description = self.parser.find_text(lot_element, "./cac:ProcurementProject/cac:ContractExtension/cbc:OptionsDescription", namespaces=self.parser.nsmap)
             
+            gpa_indicator = self.parser.find_text(lot_element, "./cac:TenderingProcess/cbc:GovernmentAgreementConstraintIndicator", namespaces=self.parser.nsmap) == 'true'
+            
             lot = {"id": lot_id, "items": self.parse_items(lot_element)}
 
-            # Handling previous notice identifier based on OPP-090-Procedure
-            previous_notice_ids = lot_element.findall(".//cac:TenderingProcess/cac:NoticeDocumentReference/cbc:ID[@schemeName='notice-id-ref']", namespaces=self.parser.nsmap)
-            for index, notid in enumerate(previous_notice_ids, start=1):
-                related_process = {
-                    "id": str(index),  # Creating incremental IDs based on the procedure being repeated
-                    "relationship": ["planning"],
-                    "scheme": "eu-oj",
-                    "identifier": notid.text  # Extract the ID
-                }
-                if "relatedProcesses" not in lot:
-                    lot['relatedProcesses'] = []
-                lot['relatedProcesses'].append(related_process)
+            if gpa_indicator:
+                lot['coveredBy'] = ["GPA"]
 
-            # Date handling
             if start_date:
                 start_iso_date = parse_iso_date(start_date).isoformat()
                 lot['contractPeriod'] = {"startDate": start_iso_date}
@@ -575,7 +566,7 @@ def convert_ted_to_ocds(xml_file):
         raise
 
 # Example usage
-xml_file = "2022-319091.xml"
+xml_file = "2023-653367.xml"
 ocds_json = convert_ted_to_ocds(xml_file)
 print(ocds_json)
 
