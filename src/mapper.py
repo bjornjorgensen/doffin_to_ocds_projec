@@ -291,10 +291,20 @@ class TEDtoOCDSConverter:
         lot_id = self.parser.find_text(lot_element, "./cbc:ID")
         lot_title = self.parser.find_text(lot_element, ".//cac:ProcurementProject/cbc:Name", namespaces=self.parser.nsmap)
         gpa_indicator = self.parser.find_text(lot_element, "./cac:TenderingProcess/cbc:GovernmentAgreementConstraintIndicator", namespaces=self.parser.nsmap) == 'true'
+    
+        # Fetching the estimated overall contract amount for the lot
+        estimated_value_element = lot_element.find("./cac:ProcurementProject/cac:RequestedTenderTotal/cbc:EstimatedOverallContractAmount", namespaces=self.parser.nsmap)
+        estimated_value = estimated_value_element.text if estimated_value_element is not None else None
+        currency_id = estimated_value_element.get('currencyID') if estimated_value_element is not None else None
+
         lot = {
             "id": lot_id,
-            "title": lot_title,  # Include the title in the lot output
-            "items": self.parse_items(lot_element)
+            "title": lot_title,
+            "items": self.parse_items(lot_element),
+            "value": {
+                "amount": float(estimated_value) if estimated_value else None,
+                "currency": currency_id
+            }
         }
 
         if gpa_indicator:
