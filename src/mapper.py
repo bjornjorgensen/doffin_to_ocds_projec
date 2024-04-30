@@ -50,12 +50,21 @@ class TEDtoOCDSConverter:
                 for org_element in organizations_element.findall("./efac:Organization/efac:Company", namespaces=self.parser.nsmap):
                     party_name = self.parser.find_text(org_element, "./cac:PartyName/cbc:Name", namespaces=self.parser.nsmap)
                     party_id = self.parser.find_text(org_element, "./cac:PartyIdentification/cbc:ID", namespaces=self.parser.nsmap)
+                    company_id = self.parser.find_text(org_element, "./cac:PartyLegalEntity/cbc:CompanyID", namespaces=self.parser.nsmap)
+
+                    logging.debug(f"Fetched party name: {party_name}, party ID: {party_id}, Company ID: {company_id}")
+
                     if party_name and party_id:
-                        return {"id": party_id, "name": party_name}
+                        party_info = {"id": party_id, "name": party_name}
+                        if company_id:
+                            party_info["additionalIdentifiers"] = [{"id": company_id, "scheme": "NO-ORG"}]
+                        logging.debug(f"Company Organization Output: {party_info}")
+                        return party_info
+                logging.warning("No Company data found after iteration.")
         except Exception as e:
             logging.error(f"Failed while fetching company organization: {str(e)}")
         return {}
-
+    
     def fetch_bt500_touchpoint_organization(self, element):
         xpath = ".//efac:Organizations/efac:Organization/efac:TouchPoint/cac:PartyName/cbc:Name"
         name = self.parser.find_text(element, xpath, namespaces=self.parser.nsmap)
@@ -95,11 +104,14 @@ class TEDtoOCDSConverter:
         # Fetch parties using specialized functions for BT-500 organization company and touchpoint
         company_party = self.fetch_bt500_company_organization(root_element)
         if company_party:
-            parties.append({
+            party_info = {
                 "id": company_party.get("id"),
                 "name": company_party.get("name"),
                 "roles": ["supplier"]  # Assuming the role here, adjust as needed
-            })
+            }
+            if "additionalIdentifiers" in company_party:
+                party_info["additionalIdentifiers"] = company_party["additionalIdentifiers"]
+            parties.append(party_info)
         else:
             logging.warning('No company organization data found.')
         
