@@ -52,6 +52,7 @@ class TEDtoOCDSConverter:
             'dir-awa-pre': {'tags': ['award', 'contract'], 'tender_status': 'complete'},
             'cont-modif': {'tags': ['awardUpdate', 'contractUpdate'], 'tender_status': None}
         }
+        self.awards = []
         logging.info('TEDtoOCDSConverter initialized with mapping.')
 
     def fetch_bt500_company_organization(self, root_element):
@@ -386,7 +387,60 @@ class TEDtoOCDSConverter:
         'ISL': 'is'   # Icelandic (Iceland is not in the EU, similar to Norway and often included in joint data)
         }
         return language_mapping.get(lang_code.upper())
-    
+   
+    def parse_tender_values(self, root):
+        tender_values = []
+        tender_value_elements = root.findall(".//ext:UBLExtensions/ext:UBLExtension/ext:ExtensionContent/efext:EformsExtension/efac:NoticeResult/efac:LotTender", namespaces=self.parser.nsmap)
+            
+        for tender_value_element in tender_value_elements:
+            tender_id = self.parser.find_text(tender_value_element, "./cbc:ID", namespaces=self.parser.nsmap)
+            payable_amount = self.parser.find_text(tender_value_element, "./cac:LegalMonetaryTotal/cbc:PayableAmount", namespaces=self.parser.nsmap)
+            currency_id = tender_value_element.find(".//cbc:PayableAmount", namespaces=self.parser.nsmap).get('currencyID')
+
+            # Related information: Lot and Result ID linking
+            lot_id = self.parser.find_text(tender_value_element, "./efac:TenderLot/cbc:ID", namespaces=self.parser.nsmap)
+            result_id = self.parser.find_text(tender_value_element.getparent(), "./efac:LotResult/cbc:ID", namespaces=self.parser.nsmap)
+
+            bids_detail = {
+                "id": tender_id,
+                "value": {
+                    "amount": float(payable_amount) if payable_amount else None,
+                    "currency": currency_id
+                },
+                "relatedLot": lot_id
+            }
+            
+            tender_values.append(bids_detail)
+            
+            # Connect also the award
+            award = {
+                "id": result_id,
+                "value": {
+                    "amount": float(payable_amount) if payable_amount else None,
+                    "currency": currency_id
+                },
+                "relatedLots": [lot_id]
+            }
+            
+            self.add_update_award(award)
+
+        return tender_values
+
+    def add_update_award(self, new_award):
+        """
+        Updates the internal awards data structure.
+        If an award with the given ID exists, it updates it; otherwise, it adds a new entry.
+        """
+        found = False
+        for idx, award in enumerate(self.awards):
+            if award["id"] == new_award["id"]:
+                self.awards[idx] = new_award
+                found = True
+                break
+        if not found:
+            self.awards.append(new_award)
+
+
     def convert_tender_to_ocds(self):
         root = self.parser.root
         ocid = "ocds-prefix-" + str(uuid.uuid4())  # Generate a new OCDS ID
@@ -404,10 +458,14 @@ class TEDtoOCDSConverter:
         legal_basis = self.get_legal_basis(root)
         languages = self.fetch_notice_languages(root)
 
-        # Parse related processes (references to previous notices, etc.)
-        related_processes = self.parse_related_processes(root)
+        # Now include parsing for tender values (BT-720)
+        bids_details = self.parse_tender_values(root)
+        if bids_details:
+            bids_section = {
+                "details": bids_details
+            }
 
-        # Structure the OCDS release
+        # structure the OCDS release
         release = {
             "id": self.parser.find_text(root, "./cbc:ID"),
             "ocid": ocid,
@@ -422,12 +480,13 @@ class TEDtoOCDSConverter:
                 "legalBasis": legal_basis,
                 "language": languages,
                 "lots": lots
-            }
+            },
+            "relatedProcesses": self.parse_related_processes(root),
+            "awards": self.awards  # This assumes we are collecting awards data as we parse
         }
 
-        # Include related processes if any
-        if related_processes:
-            release['relatedProcesses'] = related_processes
+        if bids_details:
+            release['bids'] = bids_section
 
         # Clean and return the final structured Release
         cleaned_release = self.clean_release_structure(release)
