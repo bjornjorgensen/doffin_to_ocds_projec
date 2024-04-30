@@ -9,18 +9,18 @@ class XMLParser:
         self.tree = etree.parse(xml_file)
         self.root = self.tree.getroot()
         self.nsmap = {
-            'cac': 'urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2',
-            'cbc': 'urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2',
-            'ext': 'urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2',
-            'efext': 'urn:oasis:names:specification:eforms:extensions:schema:xsd:CommonExtensionComponents-1',
-            'efac': 'urn:oasis:names:specification:eforms:extensions:schema:xsd:CommonAggregateComponents-1',
-            'efbc': 'urn:oasis:names:specification:eforms:extensions:schema:xsd:CommonBasicComponents-1'
+                'cac': 'urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2',
+                'cbc': 'urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2',
+                'efac': 'http://data.europa.eu/p27/eforms-ubl-extension-aggregate-components/1',
+                'efbc': 'http://data.europa.eu/p27/eforms-ubl-extension-basic-components/1',
+                'efext': 'http://data.europa.eu/p27/eforms-ubl-extensions/1',
+                'ext': 'urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2'
         }
         logging.info(f'XMLParser initialized with file: {xml_file}')
 
     def find_text(self, element, xpath, namespaces=None):
         if xpath.startswith("//"):
-            xpath = ".//" + xpath[2:]  # Correcting the relative XPath
+            xpath = ".//" + xpath[2:]
         node = element.find(xpath, namespaces=namespaces if namespaces else self.nsmap)
         return node.text if node is not None else None
 
@@ -43,6 +43,28 @@ class TEDtoOCDSConverter:
         }
         logging.info('TEDtoOCDSConverter initialized with mapping.')
 
+    def fetch_bt500_company_organization(self, root_element):
+        try:
+            organizations_element = root_element.find(".//ext:UBLExtensions/ext:UBLExtension/ext:ExtensionContent/efext:EformsExtension/efac:Organizations", namespaces=self.parser.nsmap)
+            if organizations_element is not None:
+                for org_element in organizations_element.findall("./efac:Organization/efac:Company", namespaces=self.parser.nsmap):
+                    party_name = self.parser.find_text(org_element, "./cac:PartyName/cbc:Name", namespaces=self.parser.nsmap)
+                    party_id = self.parser.find_text(org_element, "./cac:PartyIdentification/cbc:ID", namespaces=self.parser.nsmap)
+                    if party_name and party_id:
+                        return {"id": party_id, "name": party_name}
+        except Exception as e:
+            logging.error(f"Failed while fetching company organization: {str(e)}")
+        return {}
+
+    def fetch_bt500_touchpoint_organization(self, element):
+        xpath = ".//efac:Organizations/efac:Organization/efac:TouchPoint/cac:PartyName/cbc:Name"
+        name = self.parser.find_text(element, xpath, namespaces=self.parser.nsmap)
+        ident_xpath = ".//efac:Organizations/efac:Organization/efac:TouchPoint/cac:PartyIdentification/cbc:ID"
+        identifier = self.parser.find_text(element, ident_xpath, namespaces=self.parser.nsmap)
+        company_id_xpath = ".//efac:Organizations/efac:Organization/efac:Company/cac:PartyLegalEntity/cbc:CompanyID"
+        company_id = self.parser.find_text(element, company_id_xpath, namespaces=self.parser.nsmap)
+        return {"id": identifier, "name": name, "identifier": {"id": company_id, "scheme": "internal"}} if name else {}
+    
     def get_dispatch_date_time(self, root):
         issue_date = self.parser.find_text(root, ".//cbc:IssueDate")
         issue_time = self.parser.find_text(root, ".//cbc:IssueTime")
@@ -67,12 +89,37 @@ class TEDtoOCDSConverter:
             legal_basis = {'scheme': 'CELEX', 'id': celex_code}
         return legal_basis
 
-    def gather_party_info(self, element):
+    def gather_party_info(self, root_element):
         parties = []
-        party_elements = element.findall(".//cac:ContractingParty", namespaces=self.parser.nsmap)  # Directly fetch ContractingParty
+
+        # Fetch parties using specialized functions for BT-500 organization company and touchpoint
+        company_party = self.fetch_bt500_company_organization(root_element)
+        if company_party:
+            parties.append({
+                "id": company_party.get("id"),
+                "name": company_party.get("name"),
+                "roles": ["supplier"]  # Assuming the role here, adjust as needed
+            })
+        else:
+            logging.warning('No company organization data found.')
+        
+        touchpoint_party = self.fetch_bt500_touchpoint_organization(root_element)
+        if touchpoint_party:
+            parties.append({
+                "id": touchpoint_party.get("id"),
+                "name": touchpoint_party.get("name"),
+                "roles": ["supplier"]  # Assuming the role here, adjust as needed
+            })
+        else:
+            logging.warning('No touchpoint organization data found.')
+        
+        # Fetch standard contracting parties from the element provided
+        party_elements = root_element.findall(".//cac:ContractingParty", namespaces=self.parser.nsmap)
         for party_element in party_elements:
             party = party_element.find(".//cac:Party", namespaces=self.parser.nsmap)
             party_id = self.parser.find_text(party, "./cac:PartyIdentification/cbc:ID")
+            
+            # Attempt fetching the activity code
             activity_code_element = party_element.find(".//cac:ContractingActivity/cbc:ActivityTypeCode[@listName='authority-activity']", namespaces=self.parser.nsmap)
             activity_code = activity_code_element.text if activity_code_element is not None else None
 
@@ -80,6 +127,14 @@ class TEDtoOCDSConverter:
 
             if party_id:
                 info = {"id": party_id, "roles": ["buyer"]}
+
+                # Find the name of the party
+                party_name = self.parser.find_text(party, "./cac:PartyName/cbc:Name")
+                
+                if party_name:
+                    info["name"] = party_name
+                
+                # Set up additional details if an activity code was found
                 if activity_code:
                     activity_description = self.get_activity_description(activity_code)
                     scheme, code, description = self.map_activity_code(activity_code, activity_description)
@@ -96,6 +151,7 @@ class TEDtoOCDSConverter:
                 else:
                     info["details"] = {}
                     logging.warning(f'No activity code found for party ID {party_id}')
+                
                 parties.append(info)
             else:
                 logging.warning('Party element found without an ID!')
