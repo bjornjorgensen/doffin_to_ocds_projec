@@ -75,15 +75,16 @@ class TEDtoOCDSConverter:
         return {"id": identifier, "name": name, "identifier": {"id": company_id, "scheme": "internal"}} if name else {}
     
     def fetch_bt502_contact_point(self, org_element):
-        contact_point_xpath = "./efac:Company/cac:Contact/cbc:Name"
-        contact_name = self.parser.find_text(org_element, contact_point_xpath, namespaces=self.parser.nsmap)
+        contact_point = {}
+        contact_name = self.parser.find_text(org_element, "./efac:Company/cac:Contact/cbc:Name", namespaces=self.parser.nsmap)
+        telephone = self.parser.find_text(org_element, "./efac:Company/cac:Contact/cbc:Telephone", namespaces=self.parser.nsmap)
+
         if contact_name:
-            return {
-                "contactPoint": {
-                    "name": contact_name
-                }
-            }
-        return {}
+            contact_point["name"] = contact_name
+        if telephone:
+            contact_point["telephone"] = telephone
+
+        return contact_point if contact_point else {}
     
     def get_dispatch_date_time(self, root):
         issue_date = self.parser.find_text(root, ".//cbc:IssueDate")
@@ -111,53 +112,55 @@ class TEDtoOCDSConverter:
 
     def gather_party_info(self, root_element):
         parties = []
-
-        # Process the touchpoint and company organizations from BT-500
+        
+        # Fetch BT-500 organization data for both company and touchpoint
         company_party = self.fetch_bt500_company_organization(root_element)
         if company_party:
             party_info = {
                 "id": company_party.get("id"),
                 "name": company_party.get("name"),
-                "roles": ["supplier"]  # Assuming the role here, adjust as applicable
+                "roles": ["supplier"]  # Assuming the role here; adjust as necessary
             }
             if "additionalIdentifiers" in company_party:
                 party_info["additionalIdentifiers"] = company_party["additionalIdentifiers"]
             parties.append(party_info)
         else:
             logging.warning('No company organization data found from BT-500.')
-
+        
         touchpoint_party = self.fetch_bt500_touchpoint_organization(root_element)
         if touchpoint_party:
             parties.append({
                 "id": touchpoint_party.get("id"),
                 "name": touchpoint_party.get("name"),
-                "roles": ["contact"]  # Assuming the role here, adjust as needed
+                "roles": ["contact"]  # Adjust this role as needed
             })
         else:
             logging.warning('No touchpoint organization data found from BT-500.')
 
-        # Fetch organization elements, possibly include contact point as per BT-502
-        organization_elements = root_element.findall(".//ext:UBLExtensions/ext:UBLExtension/ext:ExtensionContent/efext:EformsExtension/efac:Organizations/efac:Organization", namespaces=self.parser.nsmap)
+        # Fetch extended organization elements including contact points with potential BT-502 and BT-503 data
+        organization_elements = root_element.findall(
+            ".//ext:UBLExtensions/ext:UBLExtension/ext:ExtensionContent/efext:EformsExtension/efac:Organizations/efac:Organization",
+            namespaces=self.parser.nsmap)
         for org_element in organization_elements:
             org_id = self.parser.find_text(org_element, "./efac:Company/cac:PartyIdentification/cbc:ID", namespaces=self.parser.nsmap)
             if org_id:
                 org_info = {
                     "id": org_id,
-                    "roles": ["supplier"]  # Assuming the role here
+                    "roles": ["supplier"]  # Assuming role here
                 }
                 # Fetch the organization name if available
-                name = self.parser.find_text(org_element, ".//cac:PartyName/cbc:Name", namespaces=self.parser.nsmap)
+                name = self.parser.find_text(org_element, "./cac:PartyName/cbc:Name", namespaces=self.parser.nsmap)
                 if name:
                     org_info["name"] = name
                 
-                # Fetch contact point using the new function for BT-502
-                contact_point = self.fetch_bt502_contact_point(org_element)
-                if contact_point:
-                    org_info.update(contact_point)
+                # Fetch the company's contact details including the telephone number (BT-502 and BT-503)
+                contact_info = self.fetch_bt502_contact_point(org_element)
+                if contact_info:
+                    org_info["contactPoint"] = contact_info
                 
                 parties.append(org_info)
-
-        # Fetch standard contracting parties
+        
+        # Process standard contracting parties if available
         party_elements = root_element.findall(".//cac:ContractingParty", namespaces=self.parser.nsmap)
         for party_element in party_elements:
             party = party_element.find(".//cac:Party", namespaces=self.parser.nsmap)
@@ -315,6 +318,6 @@ def convert_ted_to_ocds(xml_file):
     return result
 
 # Example usage
-xml_file = "2022-319091.xml"
+xml_file = "2022-366668.xml"
 ocds_json = convert_ted_to_ocds(xml_file)
 print(ocds_json)
