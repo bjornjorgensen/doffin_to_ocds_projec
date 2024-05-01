@@ -547,6 +547,11 @@ class TEDtoOCDSConverter:
             })
         return items
 
+    def fetch_bt300_additional_info(self, root):
+        # Path to extract the additional information as per BT-300
+        additional_info_element = root.find(".//cac:ProcurementProject/cbc:Note", namespaces=self.parser.nsmap)
+        return additional_info_element.text if additional_info_element is not None else None
+
     def convert_tender_to_ocds(self):
         root = self.parser.root
         ocid = "ocds-prefix-" + str(uuid.uuid4())  # Generate a new OCDS ID
@@ -559,6 +564,7 @@ class TEDtoOCDSConverter:
         lots, aggregated_part_value = self.parse_lots(root)
         legal_basis = self.get_legal_basis(root)
         languages = self.fetch_notice_languages(root)
+        additional_info = self.fetch_bt300_additional_info(root) 
 
         # Fetch estimated total tender value (according to BT-27)
         tender_estimated_value = self.fetch_tender_estimated_value(root)
@@ -578,6 +584,7 @@ class TEDtoOCDSConverter:
                 "id": self.parser.find_text(root, ".//cbc:ContractFolderID"),
                 "status": form_type['tender_status'],
                 "title": tender_title,
+                "description": additional_info, 
                 "legalBasis": legal_basis,
                 "language": languages,
                 "lots": lots
@@ -654,7 +661,7 @@ def convert_ted_to_ocds(xml_file):
         raise
 
 # Example usage
-xml_file = "2023-653367.xml"
+xml_file = "2023-673152.xml"
 ocds_json = convert_ted_to_ocds(xml_file)
 print(ocds_json)
 
