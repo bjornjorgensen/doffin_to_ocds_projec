@@ -63,26 +63,46 @@ class TEDtoOCDSConverter:
         logging.info('TEDtoOCDSConverter initialized with mapping.')
 
     def fetch_bt500_company_organization(self, root_element):
-        try:
-            organizations_element = root_element.find(".//ext:UBLExtensions/ext:UBLExtension/ext:ExtensionContent/efext:EformsExtension/efac:Organizations", namespaces=self.parser.nsmap)
-            if organizations_element is not None:
-                for org_element in organizations_element.findall("./efac:Organization/efac:Company", namespaces=self.parser.nsmap):
-                    party_name = self.parser.find_text(org_element, "./cac:PartyName/cbc:Name", namespaces=self.parser.nsmap)
-                    party_id = self.parser.find_text(org_element, "./cac:PartyIdentification/cbc:ID", namespaces=self.parser.nsmap)
-                    company_id = self.parser.find_text(org_element, "./cac:PartyLegalEntity/cbc:CompanyID", namespaces=self.parser.nsmap)
+        logger = logging.getLogger(__name__)
 
-                    logging.debug(f"Fetched party name: {party_name}, party ID: {party_id}, Company ID: {company_id}")
+        organizations = []
+        # Define namespaces explicitly as used in XML
+        nsmap = {
+            'efac': 'http://data.europa.eu/p27/eforms-ubl-extension-aggregate-components/1',
+            'cac': 'urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2',
+            'cbc': 'urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2',
+            'ext': 'urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2'
+        }
 
-                    if party_name and party_id:
-                        party_info = {"id": party_id, "name": party_name}
-                        if company_id:
-                            party_info["additionalIdentifiers"] = [{"id": company_id, "scheme": "NO-ORG"}]
-                        logging.debug(f"Company Organization Output: {party_info}")
-                        return party_info
-                logging.warning("No Company data found after iteration.")
-        except Exception as e:
-            logging.error(f"Failed while fetching company organization: {str(e)}")
-        return {}
+        # Adjusting XPath to directly target nodes under efext:EformsExtension for efac:Organizations
+        organization_elements = root_element.findall(".//efac:Organizations/efac:Organization", namespaces=nsmap)
+
+        for org_element in organization_elements:
+            # Notice efac:Company used for better scoping inside Organization
+            org_id = org_element.find("./efac:Company/cac:PartyIdentification/cbc:ID", namespaces=nsmap)
+            org_name = org_element.find("./efac:Company/cac:PartyName/cbc:Name", namespaces=nsmap)
+            company_id = org_element.find("./efac:Company/cac:PartyLegalEntity/cbc:CompanyID", namespaces=nsmap)
+
+            # Log details to trace values
+            if org_id is not None and org_name is not None:
+                org_info = {
+                    "id": org_id.text,
+                    "name": org_name.text,
+                    "additionalIdentifiers": []
+                }
+
+                if company_id is not None:
+                    org_info["additionalIdentifiers"].append({
+                        "id": company_id.text,
+                        "scheme": "CompanyID"
+                    })
+
+                organizations.append(org_info)
+                logger.debug(f'Added organization: {org_info}')
+            else:
+                logger.warning(f"Missing ID or Name for organization {etree.tostring(org_element, pretty_print=True)}")
+
+        return organizations
     
     def fetch_bt500_touchpoint_organization(self, element):
         xpath = ".//efac:Organizations/efac:Organization/efac:TouchPoint/cac:PartyName/cbc:Name"
@@ -133,28 +153,30 @@ class TEDtoOCDSConverter:
         parties = []
         
         # Fetch BT-500 organization data for both company and touchpoint
-        company_party = self.fetch_bt500_company_organization(root_element)
-        if company_party:
-            party_info = {
-                "id": company_party.get("id"),
-                "name": company_party.get("name"),
-                "roles": ["supplier"]  # Assuming the role here; adjust as necessary
-            }
-            if "additionalIdentifiers" in company_party:
-                party_info["additionalIdentifiers"] = company_party["additionalIdentifiers"]
-            parties.append(party_info)
-        else:
-            logging.warning('No company organization data found from BT-500.')
-        
-        touchpoint_party = self.fetch_bt500_touchpoint_organization(root_element)
-        if touchpoint_party:
-            parties.append({
-                "id": touchpoint_party.get("id"),
-                "name": touchpoint_party.get("name"),
-                "roles": ["contact"]  # Adjust this role as needed
-            })
-        else:
-            logging.warning('No touchpoint organization data found from BT-500.')
+        company_parties = self.fetch_bt500_company_organization(root_element)
+        for company_party in company_parties:
+            if company_party:
+                party_info = {
+                    "id": company_party["id"],
+                    "name": company_party["name"],
+                    "roles": ["supplier"]  # Assuming the role here; adjust as needed
+                }
+                if "additionalIdentifiers" in company_party:
+                    party_info["additionalIdentifiers"] = company_party["additionalIdentifiers"]
+                parties.append(party_info)
+            else:
+                logging.warning('No company organization data found from BT-500.')
+
+        touchpoint_parties = self.fetch_bt500_touchpoint_organization(root_element)
+        for touchpoint_party in touchpoint_parties:
+            if touchpoint_party:
+                parties.append({
+                    "id": touchpoint_party["id"],
+                    "name": touchpoint_party["name"],
+                    "roles": ["contact"]  # Adjust this role as needed
+                })
+            else:
+                logging.warning('No touchpoint organization data found from BT-500.')
 
         # Fetch extended organization elements including contact points with potential BT-502 and BT-503 data
         organization_elements = root_element.findall(
@@ -172,13 +194,13 @@ class TEDtoOCDSConverter:
                 if name:
                     org_info["name"] = name
                 
-                # Fetch the company's contact details including the telephone number (BT-502 and BT-503)
+                # Fetch the company's contact details
                 contact_info = self.fetch_bt502_contact_point(org_element)
                 if contact_info:
                     org_info["contactPoint"] = contact_info
                 
                 parties.append(org_info)
-        
+
         # Process standard contracting parties if available
         party_elements = root_element.findall(".//cac:ContractingParty", namespaces=self.parser.nsmap)
         for party_element in party_elements:
@@ -193,7 +215,19 @@ class TEDtoOCDSConverter:
             else:
                 logging.warning('Party element found without an ID!')
 
-        return parties
+        # Deduplication of parties
+        seen_ids = {}
+        cleaned_parties = []
+        for party in parties:
+            if party['id'] in seen_ids:
+                # Append roles to the existing party
+                cleaned_party = seen_ids[party['id']]
+                cleaned_party['roles'] = list(set(cleaned_party['roles'] + party['roles']))
+            else:
+                seen_ids[party['id']] = party
+                cleaned_parties.append(party)
+
+        return cleaned_parties
 
     def get_activity_description(self, activity_code):
         activity_descriptions = {
@@ -649,7 +683,7 @@ class TEDtoOCDSConverter:
        return None
 
 def convert_ted_to_ocds(xml_file):
-    logging.basicConfig(level=logging.INFO)  # Adjust the logging level as needed
+    logging.basicConfig(level=logging.DEBUG)  # Adjust the logging level as needed
     try:
         parser = XMLParser(xml_file)
         converter = TEDtoOCDSConverter(parser)
