@@ -64,7 +64,7 @@ class TEDtoOCDSConverter:
 
     def fetch_bt500_company_organization(self, root_element):
         logger = logging.getLogger(__name__)
-
+        
         organizations = []
         # Define namespaces explicitly as used in XML
         nsmap = {
@@ -74,16 +74,14 @@ class TEDtoOCDSConverter:
             'ext': 'urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2'
         }
 
-        # Adjusting XPath to directly target nodes under efext:EformsExtension for efac:Organizations
         organization_elements = root_element.findall(".//efac:Organizations/efac:Organization", namespaces=nsmap)
 
         for org_element in organization_elements:
-            # Notice efac:Company used for better scoping inside Organization
             org_id = org_element.find("./efac:Company/cac:PartyIdentification/cbc:ID", namespaces=nsmap)
             org_name = org_element.find("./efac:Company/cac:PartyName/cbc:Name", namespaces=nsmap)
             company_id = org_element.find("./efac:Company/cac:PartyLegalEntity/cbc:CompanyID", namespaces=nsmap)
+            address_element = org_element.find('./efac:Company/cac:PostalAddress', namespaces=nsmap)
 
-            # Log details to trace values
             if org_id is not None and org_name is not None:
                 org_info = {
                     "id": org_id.text,
@@ -92,10 +90,13 @@ class TEDtoOCDSConverter:
                 }
 
                 if company_id is not None:
-                    org_info["additionalIdentifiers"].append({
-                        "id": company_id.text,
-                        "scheme": "CompanyID"
-                    })
+                    org_info["additionalIdentifiers"].append({"id": company_id.text, "scheme": "CompanyID"})
+
+                # Process postal address if available and place correctly in the org_info dictionary
+                if address_element:
+                    org_info['address'] = {
+                        "streetAddress": self.process_street_address(address_element, nsmap)
+                    }
 
                 organizations.append(org_info)
                 logger.debug(f'Added organization: {org_info}')
@@ -103,6 +104,14 @@ class TEDtoOCDSConverter:
                 logger.warning(f"Missing ID or Name for organization {etree.tostring(org_element, pretty_print=True)}")
 
         return organizations
+
+    def process_street_address(self, address_element, nsmap):
+        street_name = address_element.find('./cbc:StreetName', namespaces=nsmap)
+        additional_street_name = address_element.find('./cbc:AdditionalStreetName', namespaces=nsmap)
+        address_lines = address_element.findall('./cac:AddressLine/cbc:Line', namespaces=nsmap)
+        
+        parts = [part.text for part in [street_name, additional_street_name] + address_lines if part is not None and part.text]
+        return ', '.join(parts)
     
     def fetch_bt500_touchpoint_organization(self, element):
         xpath = ".//efac:Organizations/efac:Organization/efac:TouchPoint/cac:PartyName/cbc:Name"
@@ -159,7 +168,8 @@ class TEDtoOCDSConverter:
                 party_info = {
                     "id": company_party["id"],
                     "name": company_party["name"],
-                    "roles": ["supplier"]  # Assuming the role here; adjust as needed
+                    "roles": ["supplier"],  # Assuming the role here; adjust as needed
+                    "address": company_party.get("address")  # Include address if available
                 }
                 if "additionalIdentifiers" in company_party:
                     party_info["additionalIdentifiers"] = company_party["additionalIdentifiers"]
@@ -170,18 +180,22 @@ class TEDtoOCDSConverter:
         touchpoint_parties = self.fetch_bt500_touchpoint_organization(root_element)
         for touchpoint_party in touchpoint_parties:
             if touchpoint_party:
-                parties.append({
+                # Engage more data if touchpoint_party is expected to contain additional information
+                touchpoint_info = {
                     "id": touchpoint_party["id"],
                     "name": touchpoint_party["name"],
-                    "roles": ["contact"]  # Adjust this role as needed
-                })
+                    "roles": ["contact"],  # Adjust this role as needed
+                    "address": touchpoint_party.get("address")  # Include address if available
+                }
+                parties.append(touchpoint_info)
             else:
                 logging.warning('No touchpoint organization data found from BT-500.')
 
-        # Fetch extended organization elements including contact points with potential BT-502 and BT-503 data
+        # Fetch extended organization elements
         organization_elements = root_element.findall(
             ".//ext:UBLExtensions/ext:UBLExtension/ext:ExtensionContent/efext:EformsExtension/efac:Organizations/efac:Organization",
             namespaces=self.parser.nsmap)
+        
         for org_element in organization_elements:
             org_id = self.parser.find_text(org_element, "./efac:Company/cac:PartyIdentification/cbc:ID", namespaces=self.parser.nsmap)
             if org_id:
@@ -189,12 +203,11 @@ class TEDtoOCDSConverter:
                     "id": org_id,
                     "roles": ["supplier"]  # Assuming role here
                 }
-                # Fetch the organization name if available
+                # Fetch the organization name if available and contact details
                 name = self.parser.find_text(org_element, "./cac:PartyName/cbc:Name", namespaces=self.parser.nsmap)
                 if name:
                     org_info["name"] = name
-                
-                # Fetch the company's contact details
+
                 contact_info = self.fetch_bt502_contact_point(org_element)
                 if contact_info:
                     org_info["contactPoint"] = contact_info
@@ -206,11 +219,14 @@ class TEDtoOCDSConverter:
         for party_element in party_elements:
             party = party_element.find(".//cac:Party", namespaces=self.parser.nsmap)
             party_id = self.parser.find_text(party, "./cac:PartyIdentification/cbc:ID")
+            party_name = self.parser.find_text(party, "./cac:PartyName/cbc:Name")
+            
             if party_id:
-                info = {"id": party_id, "roles": ["buyer"]}
-                party_name = self.parser.find_text(party, "./cac:PartyName/cbc:Name")
-                if party_name:
-                    info["name"] = party_name
+                info = {
+                    "id": party_id,
+                    "name": party_name,
+                    "roles": ["buyer"]
+                }
                 parties.append(info)
             else:
                 logging.warning('Party element found without an ID!')
@@ -220,9 +236,9 @@ class TEDtoOCDSConverter:
         cleaned_parties = []
         for party in parties:
             if party['id'] in seen_ids:
-                # Append roles to the existing party
-                cleaned_party = seen_ids[party['id']]
-                cleaned_party['roles'] = list(set(cleaned_party['roles'] + party['roles']))
+                # Merge roles from duplicate party entries
+                seen_party = seen_ids[party['id']]
+                seen_party['roles'] = list(set(seen_party['roles'] + party['roles']))
             else:
                 seen_ids[party['id']] = party
                 cleaned_parties.append(party)
@@ -683,7 +699,7 @@ class TEDtoOCDSConverter:
        return None
 
 def convert_ted_to_ocds(xml_file):
-    logging.basicConfig(level=logging.DEBUG)  # Adjust the logging level as needed
+    logging.basicConfig(level=logging.DEBUG) 
     try:
         parser = XMLParser(xml_file)
         converter = TEDtoOCDSConverter(parser)
