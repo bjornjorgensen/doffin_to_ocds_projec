@@ -169,7 +169,7 @@ class TEDtoOCDSConverter:
                     "id": company_party["id"],
                     "name": company_party["name"],
                     "roles": ["supplier"],  # Assuming the role here; adjust as needed
-                    "address": company_party.get("address")  # Include address if available
+                    "address": company_party.get("address")  # Include street address if available
                 }
                 if "additionalIdentifiers" in company_party:
                     party_info["additionalIdentifiers"] = company_party["additionalIdentifiers"]
@@ -180,7 +180,6 @@ class TEDtoOCDSConverter:
         touchpoint_parties = self.fetch_bt500_touchpoint_organization(root_element)
         for touchpoint_party in touchpoint_parties:
             if touchpoint_party:
-                # Engage more data if touchpoint_party is expected to contain additional information
                 touchpoint_info = {
                     "id": touchpoint_party["id"],
                     "name": touchpoint_party["name"],
@@ -203,7 +202,6 @@ class TEDtoOCDSConverter:
                     "id": org_id,
                     "roles": ["supplier"]  # Assuming role here
                 }
-                # Fetch the organization name if available and contact details
                 name = self.parser.find_text(org_element, "./cac:PartyName/cbc:Name", namespaces=self.parser.nsmap)
                 if name:
                     org_info["name"] = name
@@ -212,6 +210,14 @@ class TEDtoOCDSConverter:
                 if contact_info:
                     org_info["contactPoint"] = contact_info
                 
+                # Process the address and city name
+                address_element = org_element.find('./cac:PostalAddress', namespaces=self.parser.nsmap)
+                if address_element:
+                    org_info['address'] = {
+                        "streetAddress": self.process_street_address(address_element, self.parser.nsmap),
+                        "locality": self.parser.find_text(address_element, './cbc:CityName', namespaces=self.parser.nsmap)
+                    }
+
                 parties.append(org_info)
 
         # Process standard contracting parties if available
@@ -221,15 +227,23 @@ class TEDtoOCDSConverter:
             party_id = self.parser.find_text(party, "./cac:PartyIdentification/cbc:ID")
             party_name = self.parser.find_text(party, "./cac:PartyName/cbc:Name")
             
-            if party_id:
+            if party_id and party_name:
                 info = {
                     "id": party_id,
                     "name": party_name,
                     "roles": ["buyer"]
                 }
+                # Append the city data to the party
+                address_element = party.find('./cac:PostalAddress', namespaces=self.parser.nsmap)
+                if address_element:
+                    city_name = self.parser.find_text(address_element, './cbc:CityName', namespaces=self.parser.nsmap)
+                    info['address'] = {
+                        "locality": city_name
+                    }
+                
                 parties.append(info)
             else:
-                logging.warning('Party element found without an ID!')
+                logging.warning('Party element found without an ID or Name!')
 
         # Deduplication of parties
         seen_ids = {}
@@ -711,7 +725,7 @@ def convert_ted_to_ocds(xml_file):
         raise
 
 # Example usage
-xml_file = "2023-673152.xml"
+xml_file = "2024-102293.xml"
 ocds_json = convert_ted_to_ocds(xml_file)
 print(ocds_json)
 
