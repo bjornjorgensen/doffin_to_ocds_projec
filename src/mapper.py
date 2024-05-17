@@ -3,17 +3,14 @@ import uuid
 import json
 from lxml import etree
 from datetime import datetime
-
+import re
 
 def parse_iso_date(date_str):
-    """
-    Custom parser for handling ISO dates with timezone in '+00:00' format.
-    """
     try:
-        return datetime.strptime(date_str, "%Y-%m-%dT%H:%M:%S%z")
-    except ValueError:
-        # Try without time part
-        return datetime.strptime(date_str, "%Y-%m-%d%z")
+        return dateutil.parser.isoparse(date_str)
+    except ValueError as e:
+        logging.error(f'Error parsing date: {date_str} - {e}')
+        return None
     
 class XMLParser:
     def __init__(self, xml_file):
@@ -52,12 +49,12 @@ class TEDtoOCDSConverter:
     def __init__(self, parser):
         self.parser = parser
         self.form_type_mapping = {
-            'planning': {'tags': ['tender'], 'tender_status': 'planned'},
-            'competition': {'tags': ['tender'], 'tender_status': 'active'},
-            'change': {'tags': ['tenderUpdate'], 'tender_status': None},
-            'result': {'tags': ['award', 'contract'], 'tender_status': 'complete'},
-            'dir-awa-pre': {'tags': ['award', 'contract'], 'tender_status': 'complete'},
-            'cont-modif': {'tags': ['awardUpdate', 'contractUpdate'], 'tender_status': None}
+            'planning': {'tag': ['tender'], 'tender_status': 'planned'},
+            'competition': {'tag': ['tender'], 'tender_status': 'active'},
+            'change': {'tag': ['tenderUpdate'], 'tender_status': None},
+            'result': {'tag': ['award', 'contract'], 'tender_status': 'complete'},
+            'dir-awa-pre': {'tag': ['award', 'contract'], 'tender_status': 'complete'},
+            'cont-modif': {'tag': ['awardUpdate', 'contractUpdate'], 'tender_status': None}
         }
         self.awards = []
         logging.info('TEDtoOCDSConverter initialized with mapping.')
@@ -93,7 +90,7 @@ class TEDtoOCDSConverter:
                     org_info["additionalIdentifiers"].append({"id": company_id.text, "scheme": "CompanyID"})
 
                 # Process postal address if available and place correctly in the org_info dictionary
-                if address_element:
+                if address_element is not None:
                     org_info['address'] = {
                         "streetAddress": self.process_street_address(address_element, nsmap)
                     }
@@ -134,28 +131,75 @@ class TEDtoOCDSConverter:
 
         return contact_point if contact_point else {}
     
-    def get_dispatch_date_time(self, root):
-        issue_date = self.parser.find_text(root, ".//cbc:IssueDate")
-        issue_time = self.parser.find_text(root, ".//cbc:IssueTime")
+    def get_dispatch_date_time(self):
+        # Fetch the root element of the XML.
+        root = self.parser.root
+        
+        # Correctly target the cbc:IssueDate and cbc:IssueTime elements directly under the root or a specific parent.
+        issue_date = self.parser.find_text(root, "./cbc:IssueDate", namespaces=self.parser.nsmap)
+        issue_time = self.parser.find_text(root, "./cbc:IssueTime", namespaces=self.parser.nsmap)
+
+        # Print extracted date and time for debugging purposes.
+        print(f"Issue Date: {issue_date}")
+        print(f"Issue Time: {issue_time}")
+
+        # Check if both issue date and issue time are present.
         if issue_date and issue_time:
-            return f"{issue_date}T{issue_time}"
+            # Combine the date and time strings into a single datetime string.
+            combined_datetime = f"{issue_date[:10]}T{issue_time[:8]}{issue_date[10:]}"
+            
+            try:
+                # Parse the combined date and time string into a datetime object.
+                parsed_datetime = datetime.fromisoformat(combined_datetime)
+                # Return the ISO formatted datetime string.
+                return parsed_datetime.isoformat()
+            except ValueError as e:
+                # Log the error if the date and time could not be parsed.
+                logging.error(f"Error parsing dispatch date/time: {combined_datetime} - {e}")
+        else:
+            # Log a warning if either the issue date or time is missing.
+            logging.warning("Missing issue date or issue time in the XML.")
+
+        # Return None if the date and time could not be parsed.
+        return None
+
+    def get_contract_signed_date(self):
+        root = self.parser.root
+        issue_date = self.parser.find_text(root, ".//efac:SettledContract/cbc:IssueDate")
+        if issue_date:
+            try:
+                parsed_date = datetime.fromisoformat(issue_date)
+                return parsed_date.isoformat()
+            except ValueError as e:
+                logging.error(f"Error parsing contract signed date: {issue_date} - {e}")
         return None
 
     def get_legal_basis(self, element):
         legal_basis = {}
-        all_basis = element.findall(".//cac:TenderingTerms/cac:ProcurementLegislationDocumentReference",
-                                     namespaces=self.parser.nsmap)
-        for ref in all_basis:
+        document_references = element.findall(".//cac:TenderingTerms/cac:ProcurementLegislationDocumentReference", namespaces=self.parser.nsmap)
+
+        for ref in document_references:
             id_text = self.parser.find_text(ref, "./cbc:ID")
-            if id_text == "LocalLegalBasis":
+            if id_text not in ['CrossBorderLaw', 'LocalLegalBasis']:
+                legal_basis['id'] = id_text
+                legal_basis['scheme'] = 'ELI'
+                description = self.parser.find_text(ref, "./cbc:DocumentDescription")
+                if description:
+                    legal_basis['description'] = description
+                break
+            elif id_text == 'LocalLegalBasis':
                 legal_basis['id'] = 'LocalLegalBasis'
                 description = self.parser.find_text(ref, "./cbc:DocumentDescription")
                 if description:
                     legal_basis['description'] = description
                 break
-        celex_code = self.parser.find_text(element, ".//cbc:RegulatoryDomain")
-        if celex_code:
-            legal_basis = {'scheme': 'CELEX', 'id': celex_code}
+
+        if 'id' not in legal_basis:
+            celex_code = self.parser.find_text(element, ".//cbc:RegulatoryDomain")
+            if celex_code:
+                legal_basis['id'] = celex_code
+                legal_basis['scheme'] = 'CELEX'
+
         return legal_basis
 
     def gather_party_info(self, root_element):
@@ -341,7 +385,7 @@ class TEDtoOCDSConverter:
 
     def get_form_type(self, element):
         form_type_code = self.parser.find_attribute(element, ".//cbc:NoticeTypeCode", "listName")
-        return self.form_type_mapping.get(form_type_code, {'tags': [], 'tender_status': 'planned'})
+        return self.form_type_mapping.get(form_type_code, {'tag': [], 'tender_status': 'planned'})
 
     def parse_lots(self, element):
         lots = []
@@ -474,7 +518,7 @@ class TEDtoOCDSConverter:
             # Assuming a mapping function convert_language_code() that converts TED language codes to ISO 639-1
             language_iso = self.convert_language_code(notice_language_code)
             if language_iso:
-                languages.append(language_iso)
+                languages.append(language_iso.upper())
 
         # The following fetches additional languages but is discarded as per BT-702(b)
         # additional_languages = element.findall(".//cac:AdditionalNoticeLanguage/cbc:ID", namespaces=self.parser.nsmap)
@@ -483,6 +527,7 @@ class TEDtoOCDSConverter:
         #     if language_iso:
         #         languages.append(language_iso)
 
+        logging.debug(f'Fetched notice languages: {languages}')
         return languages
 
     @staticmethod
@@ -618,65 +663,63 @@ class TEDtoOCDSConverter:
 
     def convert_tender_to_ocds(self):
         root = self.parser.root
-        ocid = "ocds-prefix-" + str(uuid.uuid4())  # Generate a new OCDS ID
-        dispatch_datetime = self.get_dispatch_date_time(root)
+        ocid = "ocds-prefix-" + str(uuid.uuid4())
+        dispatch_datetime = self.get_dispatch_date_time()
+        contract_signed_date = self.get_contract_signed_date()
         tender_title = self.parser.find_text(root, ".//cac:ProcurementProject/cbc:Name", namespaces=self.parser.nsmap)
 
-        # Fetching the form type, parties, and additional elements
         form_type = self.get_form_type(root)
         parties = self.gather_party_info(root)
         lots, aggregated_part_value = self.parse_lots(root)
+        
         legal_basis = self.get_legal_basis(root)
-        languages = self.fetch_notice_languages(root)
-        additional_info = self.fetch_bt300_additional_info(root) 
-
-        # Fetch estimated total tender value (according to BT-27)
+        languages = self.fetch_notice_languages(root)  # Ensure this function call is correctly extracting the language
+        additional_info = self.fetch_bt300_additional_info(root)
         tender_estimated_value = self.fetch_tender_estimated_value(root)
-
-        # Parsing tender values which might include results from specific lots or tender segments
         bids_details = self.parse_tender_values(root)
 
-        # Assembling the OCDS release data structure
+        # Check if languages list is not empty and get the first language for `language`
+        document_language = languages[0] if languages else None
+
         release = {
             "id": self.parser.find_text(root, "./cbc:ID"),
             "ocid": ocid,
-            "date": dispatch_datetime,
+            "date": dispatch_datetime,  # Correctly fetched dispatch date-time
             "initiationType": "tender",
-            "tags": form_type['tags'],
+            "tag": form_type['tag'],
             "parties": parties,
+            "language": document_language,  # Add language to release
             "tender": {
                 "id": self.parser.find_text(root, ".//cbc:ContractFolderID"),
                 "status": form_type['tender_status'],
                 "title": tender_title,
-                "description": additional_info, 
+                "description": additional_info,
                 "legalBasis": legal_basis,
-                "language": languages,
+                "lang": languages,
                 "lots": lots
             },
             "relatedProcesses": self.parse_related_processes(root),
-            "awards": self.awards  # Collecting awards data as the process proceeds
+            "awards": self.awards,
+            "contracts": [{
+                "dateSigned": contract_signed_date  # Correctly fetched contract date
+            }] if contract_signed_date else []
         }
 
-        # Adding the estimated value to the tender, if it is available
         if tender_estimated_value:
             release["tender"]["value"] = tender_estimated_value
 
-        # Conditionally adding the aggregated 'part' lot value
         if aggregated_part_value:
             if "value" in release["tender"]:
-                # Updating the amount to include parts only if the currencies match
                 if release["tender"]["value"]["currency"] == aggregated_part_value["currency"]:
                     release["tender"]["value"]["amount"] += aggregated_part_value["amount"]
             else:
                 release["tender"]["value"] = aggregated_part_value
 
-        # Attach bids detail if available
         if bids_details:
             release['bids'] = {
                 "details": bids_details
             }
 
-        # Clean and return the final structured OCDS release
         cleaned_release = self.clean_release_structure(release)
         logging.info('Conversion to OCDS format completed.')
         return cleaned_release
@@ -725,7 +768,7 @@ def convert_ted_to_ocds(xml_file):
         raise
 
 # Example usage
-xml_file = "2024-102293.xml"
-ocds_json = convert_ted_to_ocds(xml_file)
-print(ocds_json)
+#xml_file = "2024-102293.xml"
+#ocds_json = convert_ted_to_ocds(xml_file)
+#print(ocds_json)
 
