@@ -52,6 +52,61 @@ class XMLParser:
         return element.findall(xpath, namespaces=namespaces if namespaces else self.nsmap)
 
 class TEDtoOCDSConverter:
+    def fetch_bt3202_to_ocds(self, root_element):
+        results = root_element.findall(".//efac:SettledContract/efac:LotTender/cbc:ID", namespaces=self.parser.nsmap)
+        for result in results:
+            contract_id = result.text
+            related_bids = root_element.xpath(
+                f".//efac:NoticeResult/efac:LotTender[cbc:ID='{contract_id}']", namespaces=self.parser.nsmap
+            )
+            for bid in related_bids:
+                bid_id = self.parser.find_text(bid, "./cbc:ID", namespaces=self.parser.nsmap)
+                if bid_id:
+                    if not self.awards:
+                        self.awards.append({
+                            "id": contract_id,
+                            "relatedBids": [bid_id]
+                        })
+                    else:
+                        for award in self.awards:
+                            if award.get('id') == contract_id:
+                                award.get('relatedBids', []).append(bid_id)
+                                break
+                        else:
+                            self.awards.append({
+                                "id": contract_id,
+                                "relatedBids": [bid_id]
+                            })
+
+            for result in root_element.findall(f".//efac:LotResult[efac:SettledContract/cbc:ID='{contract_id}']", namespaces=self.parser.nsmap):
+                result_id = self.parser.find_text(result, './cbc:ID', namespaces=self.parser.nsmap)
+                award = next((x for x in self.awards if x['id'] == result_id), None)
+                if not award:
+                    continue
+
+                lot_result = result
+                tendering_party_ids = lot_result.xpath(
+                    ".//efac:TenderingParty[efac:Tenderer/cbc:ID]", namespaces=self.parser.nsmap
+                )
+
+                for org_id in tendering_party_ids:
+                    org_id = self.parser.find_text(org_id, "./efac:Tenderer/cbc:ID", namespaces=self.parser.nsmap)
+                    organization = next((x for x in self.parties if x['id'] == org_id), None)
+                    if not organization:
+                        organization = {
+                            "id": org_id,
+                            "roles": ["supplier"]
+                        }
+                        self.parties.append(organization)
+                    else:
+                        if "supplier" not in organization.get('roles', []):
+                            organization['roles'].append("supplier")
+
+                    if "suppliers" not in award:
+                        award["suppliers"] = []
+                    award["suppliers"].append({
+                        "id": org_id
+                    })
     def __init__(self, parser):
         self.parser = parser
         self.form_type_mapping = {
@@ -1670,6 +1725,7 @@ class TEDtoOCDSConverter:
         
         # Use the enhanced parsing method to include all necessary information
         self.parties = self.parse_organizations(root)
+        self.fetch_bt3202_to_ocds(root)  # Fetch BT-3202-Contract
         self.fetch_bt506_emails(root)  # Fetch BT-506 emails
         self.fetch_bt505_urls(root)  # Fetch BT-505 URLs
         self.handle_bt14_and_bt707(root)  # Handle restricted documents logic
