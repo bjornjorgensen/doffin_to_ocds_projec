@@ -532,6 +532,7 @@ But with the minimal amount of information while still valid
                 }
             ]
         }
+
     def test_conversion(self):
         # Create a file-like object from the bytes XML content
         xml_file = io.BytesIO(self.ted_xml)
@@ -540,17 +541,37 @@ But with the minimal amount of information while still valid
         result = convert_ted_to_ocds(xml_file)
         ocds_json = json.loads(result)
 
-        # Perform checks
-        self.assertEqual(ocds_json['releases'][0]['id'], self.expected_ocds_json['id'])
-        self.assertEqual(ocds_json['releases'][0]['initiationType'], self.expected_ocds_json['initiationType'])
-        self.assertEqual(ocds_json["releases"][0]["date"], self.expected_ocds_json["date"])
-        self.assertEqual(ocds_json['releases'][0]['tag'], self.expected_ocds_json['tag'])
-        self.assertEqual(ocds_json['releases'][0]['language'], self.expected_ocds_json['language'])
-        self.assertEqual(ocds_json['releases'][0]['parties'], self.expected_ocds_json['parties'])
-        #self.assertEqual(ocds_json['releases'][0]['bids'], self.expected_ocds_json['bids'])
-        #self.assertEqual(ocds_json['releases'][0]['tender'], self.expected_ocds_json['tender'])
-        #self.assertEqual(ocds_json['releases'][0]['awards'], self.expected_ocds_json['awards'])
-        #self.assertEqual(ocds_json['releases'][0]['contracts'], self.expected_ocds_json['contracts'])
+        try:
+            self.maxDiff = None  # Disable max diff limits for more comprehensive output
+
+            # Checking top level attributes consistency with thorough nested checks
+            self.assertEqual(ocds_json['releases'][0]['id'], self.expected_ocds_json['id'])
+            self.assertEqual(ocds_json['releases'][0]['initiationType'], self.expected_ocds_json['initiationType'])
+            self.assertEqual(ocds_json["releases"][0]["date"], self.expected_ocds_json["date"])
+            self.assertEqual(ocds_json['releases'][0]['tag'], self.expected_ocds_json['tag'])
+            self.assertEqual(ocds_json['releases'][0]['language'], self.expected_ocds_json['language'])
+            self.assertEqual(ocds_json['releases'][0]['parties'], self.expected_ocds_json['parties'])
+            #self.assertEqual(ocds_json['releases'][0]['bids'], self.expected_ocds_json['bids'])
+            #self.assertEqual(ocds_json['releases'][0]['tender'], self.expected_ocds_json['tender'])
+            #self.assertEqual(ocds_json['releases'][0]['awards'], self.expected_ocds_json['awards'])
+            #self.assertEqual(ocds_json['releases'][0]['contracts'], self.expected_ocds_json['contracts'])
+
+            # Compare parties and print differences if there are any
+            actual_parties = ocds_json['releases'][0]['parties']
+            expected_parties = self.expected_ocds_json['releases'][0]['parties']
+
+            for i, (actual, expected) in enumerate(zip(actual_parties, expected_parties)):
+                if actual != expected:
+                    print(f"Difference at index {i}:\nActual: {json.dumps(actual, indent=2, ensure_ascii=False)}\nExpected: {json.dumps(expected, indent=2, ensure_ascii=False)}")
+
+            self.assertEqual(actual_parties, expected_parties)
+
+        except AssertionError as e:
+            print(f"Differences in test output: {e}")
+            print("Detailed diff:")
+            print("Expected Output:", json.dumps(self.expected_ocds_json, indent=2, ensure_ascii=False))
+            print("Actual Output:", json.dumps(ocds_json, indent=2, ensure_ascii=False))
+            raise
 
 if __name__ == "__main__":
     unittest.main()
