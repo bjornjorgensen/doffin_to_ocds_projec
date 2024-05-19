@@ -72,69 +72,91 @@ class TEDtoOCDSConverter:
         logging.info('TEDtoOCDSConverter initialized with mapping.')
 
     def fetch_bt3202_to_ocds(self, root_element):
-        """
-        BT-3202: Handles mapping contract tender ID to relatedBids.
-        Fetch the contract for the SettledContract, and add the value
-        of this field to its .relatedBids array.
-        """
+        # Ensure the 'bids' dictionary and 'details' list are initialized
+        if 'bids' not in self.tender:
+            self.tender['bids'] = {}
+        if 'details' not in self.tender['bids']:
+            self.tender['bids']['details'] = []
+
         notice_results = root_element.xpath(".//efac:NoticeResult", namespaces=self.parser.nsmap)
         
         for notice_result in notice_results:
-            settled_contracts = notice_result.xpath(".//efac:SettledContract", namespaces=self.parser.nsmap)
-            for settled_contract in settled_contracts:
-                contract_id = self.parser.find_text(settled_contract, "./cbc:ID")
-                lot_tender_id = self.parser.find_text(settled_contract, "./efac:LotTender/cbc:ID")
-               
-                if contract_id and lot_tender_id:
-                    if not any(contract["id"] == contract_id for contract in self.tender.get("contracts", [])):
-                        self.tender.setdefault("contracts", []).append({
-                            "id": contract_id,
-                            "relatedBids": [lot_tender_id]
-                        })
-                    else:
-                        for contract in self.tender["contracts"]:
-                            if contract["id"] == contract_id and lot_tender_id not in contract.get("relatedBids", []):
-                                contract.setdefault("relatedBids", []).append(lot_tender_id)
+            lot_tenders = self.parser.find_nodes(notice_result, ".//efac:LotTender")
+            for lot_tender in lot_tenders:
+                tender_id = self.parser.find_text(lot_tender, "cbc:ID")
+                lot_id = self.parser.find_text(lot_tender, "efac:TenderLot/cbc:ID")
                 
-                related_lot_tender = notice_result.xpath(
-                    f".//efac:LotTender[cbc:ID = '{lot_tender_id}']", namespaces=self.parser.nsmap
-                )
-
-                for lot_tender in related_lot_tender:
-                    tendering_party_id = self.parser.find_text(lot_tender, "./efac:TenderingParty/cbc:ID")
-                    tenderer_elements = notice_result.xpath(
-                        f"./efac:TenderingParty[cbc:ID = '{tendering_party_id}']/efac:Tenderer", namespaces=self.parser.nsmap
-                    )
+                bid = next((bid for bid in self.tender["bids"]["details"] if bid["id"] == tender_id), None)
+                if not bid:
+                    bid = {
+                        "id": tender_id,
+                        "relatedLots": [lot_id]
+                    }
+                    self.tender["bids"]["details"].append(bid)
+                else:
+                    if "relatedLots" not in bid:
+                        bid["relatedLots"] = []
+                    if lot_id not in bid["relatedLots"]:
+                        bid["relatedLots"].append(lot_id)
+                
+                rank_code = self.parser.find_text(lot_tender, "cbc:RankCode")
+                if rank_code:
+                    bid["rank"] = int(rank_code)
+                
+                tender_ranked_indicator = self.parser.find_text(lot_tender, "efbc:TenderRankedIndicator")
+                if tender_ranked_indicator:
+                    bid["hasRank"] = tender_ranked_indicator.lower() == 'true'
                     
-                    for tenderer in tenderer_elements:
-                        org_id = self.parser.find_text(tenderer, "./cbc:ID")
-                        organization = next((o for o in self.parties if o['id'] == org_id), None)
-                        if not organization:
-                            organization = {
-                                "id": org_id,
-                                "roles": ["supplier"]
-                            }
-                            self.parties.append(organization)
-                        else:
-                            if "supplier" not in organization.get('roles', []):
-                                organization['roles'].append("supplier")
-
-                        lot_results = notice_result.xpath(
-                            f".//efac:LotResult[efac:SettledContract/cbc:ID = '{contract_id}']", namespaces=self.parser.nsmap
-                        )
-                        for lot_result in lot_results:
-                            result_id = self.parser.find_text(lot_result, "./cbc:ID")
-                            award = next((a for a in self.awards if a['id'] == result_id), None)
-                            if not award:
-                                award = {
-                                    "id": result_id,
-                                    "relatedLots": [self.parser.find_text(lot_result, "./efac:TenderLot/cbc:ID")]
-                                }
-                                self.awards.append(award)
-                            if "suppliers" not in award:
-                                award["suppliers"] = []
-                            if not any(supplier["id"] == org_id for supplier in award["suppliers"]):
-                                award["suppliers"].append({"id": org_id})
+                origins = self.parser.find_nodes(lot_tender, "efac:Origin/efbc:AreaCode")
+                if origins:
+                    bid["countriesOfOrigin"] = []
+                    for origin in origins:
+                        country_code = origin.text
+                        iso_country_code = self.convert_language_code(country_code, code_type='country')
+                        if iso_country_code and iso_country_code not in bid["countriesOfOrigin"]:
+                            bid["countriesOfOrigin"].append(iso_country_code)
+                
+                tender_variant_indicator = self.parser.find_text(lot_tender, "efbc:TenderVariantIndicator")
+                if tender_variant_indicator:
+                    bid["variant"] = tender_variant_indicator.lower() == 'true'
+                
+                tender_reference = self.parser.find_text(lot_tender, "efac:TenderReference/cbc:ID")
+                if tender_reference:
+                    bid.setdefault("identifiers", []).append({
+                        "id": tender_reference,
+                        "scheme": "{}-TENDERNL".format(tender_reference.split('/')[0][:2])
+                    })
+                
+                sub_contracting_amount = self.parser.find_text(lot_tender, "efac:SubcontractingTerm/efbc:TermAmount")
+                currency_id = self.parser.find_attribute(lot_tender, "efac:SubcontractingTerm/efbc:TermAmount", "currencyID")
+                if sub_contracting_amount and currency_id:
+                    bid.setdefault("subcontracting", {})["value"] = {
+                        "amount": float(sub_contracting_amount),
+                        "currency": currency_id
+                    }
+                
+                sub_contracting_desc = self.parser.find_text(lot_tender, "efac:SubcontractingTerm/efbc:TermDescription")
+                if sub_contracting_desc:
+                    bid.setdefault("subcontracting", {})["description"] = sub_contracting_desc
+                
+                sub_contracting_percent = self.parser.find_text(lot_tender, "efac:SubcontractingTerm/efbc:TermPercent")
+                if sub_contracting_percent:
+                    percentage = float(sub_contracting_percent) / 100
+                    bid.setdefault("subcontracting", {})["minimumPercentage"] = percentage
+                    bid.setdefault("subcontracting", {})["maximumPercentage"] = percentage
+                
+                sub_contracting_code = self.parser.find_text(lot_tender, "efac:SubcontractingTerm/efbc:TermCode")
+                if sub_contracting_code:
+                    bid["hasSubcontracting"] = sub_contracting_code.lower() == 'yes'
+                
+                legal_monetary_total = self.parser.find_text(lot_tender, "cac:LegalMonetaryTotal/cbc:PayableAmount")
+                currency_id = self.parser.find_attribute(lot_tender, "cac:LegalMonetaryTotal/cbc:PayableAmount", "currencyID")
+                if legal_monetary_total and currency_id:
+                    tender_value = {
+                        "amount": float(legal_monetary_total),
+                        "currency": currency_id
+                    }
+                    bid["value"] = tender_value
 
     def fetch_bt47_participants(self, root_element):
         lots = root_element.findall(".//cac:ProcurementProjectLot", namespaces=self.parser.nsmap)
@@ -1800,7 +1822,7 @@ class TEDtoOCDSConverter:
         tender_title = self.parser.find_text(root, ".//cac:ProcurementProject/cbc:Name", namespaces=self.parser.nsmap)
 
         form_type = self.get_form_type(root)
-        
+
         self.parties = self.parse_organizations(root)
         self.fetch_bt3202_to_ocds(root)
         self.fetch_bt506_emails(root)
@@ -1815,7 +1837,7 @@ class TEDtoOCDSConverter:
         self.fetch_opt_300_buyer_technical_reference(root)
         self.fetch_opt_301_tenderer_maincont(root)
         self.fetch_opt_310_tender(root)
-        
+
         activities = self.parse_activity_authority(root)
         for activity in activities:
             for party in self.parties:
@@ -1828,33 +1850,6 @@ class TEDtoOCDSConverter:
                 if "buyer" in party.get("roles", []):
                     party.setdefault("details", {}).setdefault("classifications", []).append(legal_type)
 
-        contracting_entities = self.parser.find_nodes(root, ".//cac:ContractingParty/cac:ContractingPartyType")
-        for entity in contracting_entities:
-            party_id = self.parser.find_text(entity, "./cac:Party/cac:PartyIdentification/cbc:ID", namespaces=self.parser.nsmap)
-            if not party_id:
-                continue
-
-            party_type_code = self.parser.find_text(entity, "./cbc:PartyTypeCode[@listName='buyer-contracting-type']", namespaces=self.parser.nsmap)
-            if party_type_code:
-                description = self.get_contracting_entity_description(party_type_code)
-                classification = {
-                    "scheme": "eu-buyer-contracting-type",
-                    "id": party_type_code,
-                    "description": description
-                }
-
-                party = next((p for p in self.parties if p['id'] == party_id), None)
-                if party:
-                    party.setdefault("details", {}).setdefault("classifications", []).append(classification)
-                else:
-                    self.parties.append({
-                        "id": party_id,
-                        "roles": ["buyer"],
-                        "details": {
-                            "classifications": [classification]
-                        }
-                    })
-
         lots, aggregated_part_value, award_criteria_found = self.parse_lots(root)
         legal_basis = self.get_legal_basis(root)
         languages = self.fetch_notice_languages(root)
@@ -1865,7 +1860,7 @@ class TEDtoOCDSConverter:
         procedure_type = self.parse_procedure_type(root)
         procurement_method_rationale, procurement_method_rationale_classifications = self.parse_direct_award_justification(root)
         procedure_features = self.parse_procedure_features(root)
-        
+
         tender = {
             "id": self.parser.find_text(root, ".//cbc:ContractFolderID"),
             "status": form_type['tender_status'],
@@ -1918,23 +1913,27 @@ class TEDtoOCDSConverter:
                     if key in ["roles", "id"]:
                         continue
                     elif key in existing_party and isinstance(existing_party[key], list):
-                        existing_party[key].extend(value)
+                        if key == "beneficialOwners":
+                            # Merge beneficial owners properly
+                            bo_ids = {bo["id"] for bo in existing_party[key]}
+                            for bo in value:
+                                if bo["id"] not in bo_ids:
+                                    existing_party[key].append(bo)
+                        else:
+                            existing_party[key].extend(value)
                     elif key in existing_party and isinstance(existing_party[key], dict):
                         existing_party[key].update(value)
                     else:
                         existing_party[key] = value
 
-                # Merge beneficial owners properly
-                if "beneficialOwners" in party:
-                    if "beneficialOwners" not in existing_party:
-                        existing_party["beneficialOwners"] = []
-                    existing_bos = {bo["id"] for bo in existing_party["beneficialOwners"]}
-                    for bo in party["beneficialOwners"]:
-                        if bo["id"] not in existing_bos:
-                            existing_party["beneficialOwners"].append(bo)
-
         # Convert merged parties back to list
         unique_parties = list(unique_parties.values())
+
+        # Remove duplicate beneficial owners
+        for party in unique_parties:
+            if "beneficialOwners" in party:
+                unique_bos = {bo["id"]: bo for bo in party["beneficialOwners"]}
+                party["beneficialOwners"] = list(unique_bos.values())
 
         release = {
             "id": self.parser.find_text(root, "./cbc:ID"),
@@ -1947,9 +1946,7 @@ class TEDtoOCDSConverter:
             "tender": tender,
             "relatedProcesses": self.parse_related_processes(root),
             "awards": self.awards,
-            "contracts": [{
-                "dateSigned": contract_signed_date
-            }] if contract_signed_date else []
+            "contracts": [{"dateSigned": contract_signed_date}] if contract_signed_date else [],
         }
 
         if "bids" in self.tender:
@@ -1978,7 +1975,7 @@ class TEDtoOCDSConverter:
         cleaned_release = self.clean_release_structure(release)
         cleaned_release = self.remove_schema_from_identifier(cleaned_release)
 
-        logging.info('Conversion to OCDS format completed.')
+        logger.info('Conversion to OCDS format completed.')
         return cleaned_release
                              
 
