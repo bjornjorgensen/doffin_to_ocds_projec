@@ -1084,10 +1084,11 @@ class TEDtoOCDSConverter:
         return None, None
     
     def add_update_document(self, new_document):
+        """Adds or updates the document object in tender.documents list."""
         found = False
-        for idx, doc in enumerate(self.tender.get("documents", [])):
+        for doc in self.tender.get("documents", []):
             if doc["id"] == new_document["id"]:
-                self.tender["documents"][idx] = new_document
+                doc.update(new_document)
                 found = True
                 break
         if not found:
@@ -2043,6 +2044,74 @@ class TEDtoOCDSConverter:
                 else:
                     self.remove_schema_from_identifier(value)
         return data
+    
+    def parse_classifications(self, root):
+        classifications = []
+        items = []
+        item_id = 1
+
+        # Parse BT-26(a) Procedure Additional Classifications
+        additional_class_elements = root.findall(".//cac:ProcurementProject/cac:AdditionalCommodityClassification", namespaces=self.parser.nsmap)
+        for element in additional_class_elements:
+            scheme = self.parser.find_attribute(element, "./cbc:ItemClassificationCode", "listName").upper()
+            code = self.parser.find_text(element, "./cbc:ItemClassificationCode").strip()
+            classifications.append({
+                "scheme": scheme,
+                "id": code
+            })
+
+        # Parse BT-262 Procedure Main Classification
+        main_class_element = root.find(".//cac:ProcurementProject/cac:MainCommodityClassification", namespaces=self.parser.nsmap)
+        if main_class_element is not None:
+            scheme = self.parser.find_attribute(main_class_element, "./cbc:ItemClassificationCode", "listName").upper()
+            code = self.parser.find_text(main_class_element, "./cbc:ItemClassificationCode").strip()
+            items.append({
+                "id": str(item_id),
+                "classification": {
+                    "scheme": scheme,
+                    "id": code
+                }
+            })
+            item_id += 1
+
+        # Parse BT-26(m) Lot Additional Classifications
+        lot_elements = root.findall(".//cac:ProcurementProjectLot", namespaces=self.parser.nsmap)
+        for lot_element in lot_elements:
+            lot_id = self.parser.find_text(lot_element, "./cbc:ID", namespaces=self.parser.nsmap)
+
+            additional_class_elements = lot_element.findall(".//cac:ProcurementProject/cac:AdditionalCommodityClassification", namespaces=self.parser.nsmap)
+            for element in additional_class_elements:
+                scheme = self.parser.find_attribute(element, "./cbc:ItemClassificationCode", "listName").upper()
+                code = self.parser.find_text(element, "./cbc:ItemClassificationCode").strip()
+                items.append({
+                    "id": str(item_id),
+                    "classification": {
+                        "scheme": scheme,
+                        "id": code
+                    },
+                    "relatedLot": lot_id
+                })
+                item_id += 1
+
+            # Parse BT-262 Lot Main Classification
+            main_class_element = lot_element.find(".//cac:ProcurementProject/cac:MainCommodityClassification", namespaces=self.parser.nsmap)
+            if main_class_element is not None:
+                scheme = self.parser.find_attribute(main_class_element, "./cbc:ItemClassificationCode", "listName").upper()
+                code = self.parser.find_text(main_class_element, "./cbc:ItemClassificationCode").strip()
+                items.append({
+                    "id": str(item_id),
+                    "classification": {
+                        "scheme": scheme,
+                        "id": code
+                    },
+                    "relatedLot": lot_id
+                })
+                item_id += 1
+
+        return {
+            "classifications": classifications,
+            "items": items
+        }
 
     def convert_tender_to_ocds(self):
         root = self.parser.root
@@ -2096,8 +2165,10 @@ class TEDtoOCDSConverter:
         procurement_method_rationale, procurement_method_rationale_classifications = self.parse_direct_award_justification(root)
         procedure_features = self.parse_procedure_features(root)
 
+        classifications = self.parse_classifications(root)
+
         self.handle_bidding_documents(root)
-        
+
         tender = {
             "id": self.parser.find_text(root, ".//cbc:ContractFolderID"),
             "status": form_type['tender_status'],
@@ -2116,6 +2187,8 @@ class TEDtoOCDSConverter:
             "value": tender_estimated_value,
             "procedureFeatures": procedure_features if procedure_features else None,
             "submissionMethod": ["electronicSubmission"],
+            "documents": self.tender.get("documents", []),  # Include documents in the tender structure
+            "items": classifications  # Include items with classifications
         }
 
         for lot_element in self.parser.find_nodes(root, ".//cac:ProcurementProjectLot"):
@@ -2173,7 +2246,7 @@ class TEDtoOCDSConverter:
                 party["beneficialOwners"] = list(unique_bos.values())
 
         notice_uri = self.parser.find_text(root, ".//cbc:URI", namespaces=self.parser.nsmap)
-        
+
         release = {
             "id": self.parser.find_text(root, "./cbc:ID"),
             "ocid": ocid,
