@@ -846,11 +846,7 @@ class TEDtoOCDSConverter:
                     'name': org_name_full,
                     'address': address,
                     'identifier': identifier,
-                    'contactPoint': contact_point,
-                    'details': {
-                        'listedOnRegulatedMarket': self.fetch_listed_on_regulated_market(org_element),
-                        'scale': self.fetch_company_size(org_element)
-                    }
+                    'contactPoint': contact_point
                 }
                 
                 self.update_organization(organization, updated_info)
@@ -866,16 +862,21 @@ class TEDtoOCDSConverter:
                 first_name = self.parser.find_text(ubo_element, './cbc:FirstName', namespaces=self.parser.nsmap) or ""
                 family_name = self.parser.find_text(ubo_element, './cbc:FamilyName', namespaces=self.parser.nsmap) or ""
                 full_name = f"{first_name} {family_name}".strip() or "Unknown Beneficial Owner"
-                
+
+                # Fetch and process UBO address country sub-division code (NUTS)
+                ubo_address_element = ubo_element.find('./cac:ResidenceAddress', namespaces=self.parser.nsmap)
+                ubo_address = self.process_ubo_address(ubo_address_element)
+
                 ubo_info = {
                     "id": ubo_id,
                     "name": full_name,
+                    "address": ubo_address,
                     "nationality": self.convert_language_code(self.parser.find_text(ubo_element, "./efac:Nationality/cbc:NationalityID", namespaces=self.parser.nsmap), code_type='country')
                 }
                 phone_info = self.fetch_bt503_ubo_contact(ubo_element)
                 if phone_info:
                     ubo_info.update(phone_info)
-                
+
                 organization.setdefault("beneficialOwners", []).append(ubo_info)
                 logging.debug(f"Updated organization with UBO: {organization}")
 
@@ -1275,7 +1276,11 @@ class TEDtoOCDSConverter:
     
     def process_ubo_address(self, address_element):
         country_element = self.parser.find_text(address_element, './cac:Country/cbc:IdentificationCode', namespaces=self.parser.nsmap)
-        return {'country': self.convert_language_code(country_element, code_type='country')} if country_element else {}
+        region_element = self.parser.find_text(address_element, './cbc:CountrySubentityCode', namespaces=self.parser.nsmap)
+        return {
+            'country': self.convert_language_code(country_element, code_type='country'),
+            'region': region_element
+        } if country_element or region_element else {}
 
     def get_activity_description(self, activity_code):
         activity_descriptions = {
@@ -1510,7 +1515,21 @@ class TEDtoOCDSConverter:
         if options_description:
             lot['options'] = {"description": options_description}
 
+        # Fetch and process realized location country sub-division code (NUTS)
+        self.process_lot_realized_location(lot_element, lot)
+
         return lot
+    
+    def process_lot_realized_location(self, lot_element, lot):
+        realized_locations = self.parser.find_nodes(lot_element, "./cac:ProcurementProject/cac:RealizedLocation/cac:Address")
+        if realized_locations:
+            lot.setdefault('deliveryAddresses', [])
+            for location in realized_locations:
+                realized_location = {
+                    "region": self.parser.find_text(location, "./cbc:CountrySubentityCode", namespaces=self.parser.nsmap),
+                }
+                if realized_location:
+                    lot['deliveryAddresses'].append(realized_location)
 
     def parse_contract_period_for_lot(self, lot_element):
         start_date = self.parser.find_text(lot_element, ".//cac:PlannedPeriod/cbc:StartDate", namespaces=self.parser.nsmap)
