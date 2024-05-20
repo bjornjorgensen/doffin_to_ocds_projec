@@ -66,10 +66,77 @@ class TEDtoOCDSConverter:
         self.parties = []
         self.tender = {
             "lots": [],
+            "bids": {
+                "statistics": []
+            },
             "lotGroups": []
         }
         self.budget_finances = []
         logging.info('TEDtoOCDSConverter initialized with mapping.')
+
+    def fetch_bt710_bt711_bid_statistics(self, root_element):
+        """
+        Fetches the LotResult values for BT-710 (Lowest Bid) and BT-711 (Highest Bid)
+        and includes them in the bids statistics.
+        """
+        notice_results = root_element.xpath(".//efac:NoticeResult", namespaces=self.parser.nsmap)
+        stat_id = 1
+
+        for notice_result in notice_results:
+            lot_results = notice_result.xpath(".//efac:LotResult", namespaces=self.parser.nsmap)
+            for lot_result in lot_results:
+                lot_id = self.parser.find_text(lot_result, "./efac:TenderLot/cbc:ID", namespaces=self.parser.nsmap)
+
+                lower_tender_amount = self.parser.find_text(lot_result, "./cbc:LowerTenderAmount", namespaces=self.parser.nsmap)
+                lower_tender_currency = self.parser.find_attribute(lot_result, "./cbc:LowerTenderAmount", "currencyID")
+                if lower_tender_amount and lower_tender_currency:
+                    self.tender["bids"]["statistics"].append({
+                        "id": str(stat_id),
+                        "measure": "lowestValidBidValue",
+                        "value": float(lower_tender_amount),
+                        "currency": lower_tender_currency,
+                        "relatedLot": lot_id
+                    })
+                    stat_id += 1
+
+                higher_tender_amount = self.parser.find_text(lot_result, "./cbc:HigherTenderAmount", namespaces=self.parser.nsmap)
+                higher_tender_currency = self.parser.find_attribute(lot_result, "./cbc:HigherTenderAmount", "currencyID")
+                if higher_tender_amount and higher_tender_currency:
+                    self.tender["bids"]["statistics"].append({
+                        "id": str(stat_id),
+                        "measure": "highestValidBidValue",
+                        "value": float(higher_tender_amount),
+                        "currency": higher_tender_currency,
+                        "relatedLot": lot_id
+                    })
+                    stat_id += 1
+
+    def fetch_bt712_complaints_statistics(self, root_element):
+        """
+        Fetches the LotResult complaints statistics for BT-712(a) (Code) and BT-712(b) (Number)
+        and includes them in the bids statistics.
+        """
+        notice_results = root_element.xpath(".//efac:NoticeResult", namespaces=self.parser.nsmap)
+        stat_id = len(self.tender["bids"]["statistics"]) + 1
+
+        for notice_result in notice_results:
+            lot_results = notice_result.xpath(".//efac:LotResult", namespaces=self.parser.nsmap)
+            for lot_result in lot_results:
+                lot_id = self.parser.find_text(lot_result, "./efac:TenderLot/cbc:ID", namespaces=self.parser.nsmap)
+
+                appeal_stats = lot_result.xpath(".//efac:AppealRequestsStatistics", namespaces=self.parser.nsmap)
+                for stats in appeal_stats:
+                    stats_code = self.parser.find_text(stats, "./efbc:StatisticsCode", namespaces=self.parser.nsmap)
+                    stats_number = self.parser.find_text(stats, "./efbc:StatisticsNumeric", namespaces=self.parser.nsmap)
+
+                    if stats_code == "complainants" and stats_number:
+                        self.tender["bids"]["statistics"].append({
+                            "id": str(stat_id),
+                            "measure": "complainants",
+                            "value": int(stats_number),
+                            "relatedLot": lot_id
+                        })
+                        stat_id += 1
 
     def fetch_bt3202_to_ocds(self, root_element):
         # Ensure the 'bids' dictionary and 'details' list are initialized
@@ -2150,6 +2217,8 @@ class TEDtoOCDSConverter:
         self.fetch_opt_300_procedure_service_provider(root)
         self.fetch_bt500_organization_names(root)
         self.fetch_bt47_participants(root)
+        self.fetch_bt710_bt711_bid_statistics(root)
+        self.fetch_bt712_complaints_statistics(root)
         language = self.fetch_notice_language(root)  # Fetch the notice language
 
         activities = self.parse_activity_authority(root)
@@ -2425,7 +2494,7 @@ def convert_ted_to_ocds(xml_file):
         raise
 
 # Example usage
-xml_file = "2023-618728.xml"
+xml_file = "can_24_minimal.xml"
 ocds_json = convert_ted_to_ocds(xml_file)
 print(ocds_json)
 
