@@ -1861,8 +1861,161 @@ class TEDtoOCDSConverter:
         
         return justification_text, rationale_classifications
 
+    def handle_bidding_documents(self, root_element):
+        # BT-15: Lot - Documents URL
+        lot_elements = root_element.xpath("//cac:ProcurementProjectLot[cbc:ID/@schemeName='Lot']", namespaces=self.parser.nsmap)
+        for lot_elem in lot_elements:
+            lot_id = self.parser.find_text(lot_elem, "./cbc:ID", namespaces=self.parser.nsmap)
+            document_references = self.parser.find_nodes(lot_elem, "./cac:TenderingTerms/cac:CallForTendersDocumentReference")
+            for doc_ref in document_references:
+                doc_id = self.parser.find_text(doc_ref, "./cbc:ID", namespaces=self.parser.nsmap)
+                uri = self.parser.find_text(doc_ref, "./cac:Attachment[../cbc:DocumentType='non-restricted-document']/cac:ExternalReference/cbc:URI", namespaces=self.parser.nsmap)
+                if uri:
+                    document = {
+                        "id": doc_id,
+                        "documentType": "biddingDocuments",
+                        "relatedLots": [lot_id],
+                        "url": uri
+                    }
+                    self.add_update_document(document)
+        
+        # BT-15: Part - Documents URL
+        part_elements = root_element.xpath("//cac:ProcurementProjectLot[cbc:ID/@schemeName='Part']", namespaces=self.parser.nsmap)
+        for part_elem in part_elements:
+            document_references = self.parser.find_nodes(part_elem, "./cac:TenderingTerms/cac:CallForTendersDocumentReference")
+            for doc_ref in document_references:
+                doc_id = self.parser.find_text(doc_ref, "./cbc:ID", namespaces=self.parser.nsmap)
+                uri = self.parser.find_text(doc_ref, "./cac:Attachment[../cbc:DocumentType='non-restricted-document']/cac:ExternalReference/cbc:URI", namespaces=self.parser.nsmap)
+                if uri:
+                    document = {
+                        "id": doc_id,
+                        "documentType": "biddingDocuments",
+                        "url": uri
+                    }
+                    self.add_update_document(document)
 
+        # BT-151: Contract URL
+        settled_contracts = root_element.xpath("//efac:NoticeResult/efac:SettledContract", namespaces=self.parser.nsmap)
+        for contract in settled_contracts:
+            contract_id = self.parser.find_text(contract, "./cbc:ID", namespaces=self.parser.nsmap)
+            uri = self.parser.find_text(contract, "./cbc:URI", namespaces=self.parser.nsmap)
+            if uri:
+                document = {
+                    "id": str(len(self.get_contracts()) + 1),
+                    "documentType": "contractSigned",
+                    "url": uri
+                }
+                self.add_update_contract_document(contract_id, document)
 
+        # BT-615: Lot - Documents Restricted URL
+        self.handle_restricted_docs(root_element, scheme="Lot")
+        
+        # BT-615: Part - Documents Restricted URL
+        self.handle_restricted_docs(root_element, scheme="Part")
+
+        # OPT-110: Lot - Fiscal Legislation URL
+        self.handle_fiscal_legislation(root_element, scheme="Lot")
+        
+        # OPT-110: Part - Fiscal Legislation URL
+        self.handle_fiscal_legislation(root_element, scheme="Part")
+
+        # OPT-111: Lot - Fiscal Legislation Document ID
+        self.handle_fiscal_doc_id(root_element, scheme="Lot")
+        
+        # OPT-111: Part - Fiscal Legislation Document ID
+        self.handle_fiscal_doc_id(root_element, scheme="Part")
+
+        # OPT-120: Lot - Environmental Legislation URL
+        self.handle_environmental_legis(root_element, scheme="Lot")
+        
+        # OPT-120: Part - Environmental Legislation URL
+        self.handle_environmental_legis(root_element, scheme="Part")
+
+        # OPT-130: Lot - Employment Legislation URL
+        self.handle_employment_legis(root_element, scheme="Lot")
+        
+        # OPT-130: Part - Employment Legislation URL
+        self.handle_employment_legis(root_element, scheme="Part")
+
+    def handle_restricted_docs(self, root_element, scheme):
+        elements = root_element.xpath(f"//cac:ProcurementProjectLot[cbc:ID/@schemeName='{scheme}']", namespaces=self.parser.nsmap)
+        for elem in elements:
+            lot_id = self.parser.find_text(elem, "./cbc:ID", namespaces=self.parser.nsmap)
+            document_references = self.parser.find_nodes(elem, "./cac:TenderingTerms/cac:CallForTendersDocumentReference")
+            for doc_ref in document_references:
+                doc_id = self.parser.find_text(doc_ref, "./cbc:ID", namespaces=self.parser.nsmap)
+                uri = self.parser.find_text(doc_ref, "./cac:Attachment[../cbc:DocumentType='restricted-document']/cac:ExternalReference/cbc:URI", namespaces=self.parser.nsmap)
+                if uri:
+                    document = {
+                        "id": doc_id,
+                        "accessDetailsURL": uri,
+                        "relatedLots": [lot_id]
+                    }
+                    self.add_update_document(document)
+
+    def handle_fiscal_legislation(self, root_element, scheme):
+        elements = root_element.xpath(f"//cac:ProcurementProjectLot[cbc:ID/@schemeName='{scheme}']/cac:TenderingTerms/cac:FiscalLegislationDocumentReference/cac:Attachment/cac:ExternalReference/cbc:URI", namespaces=self.parser.nsmap)
+        for elem in elements:
+            lot_id = self.parser.find_text(elem, "./../../../../cbc:ID", namespaces=self.parser.nsmap)
+            doc_id = self.parser.find_text(elem, "./../../cbc:ID", namespaces=self.parser.nsmap)
+            uri = elem.text
+            document = {
+                "id": doc_id,
+                "url": uri,
+                "relatedLots": [lot_id]
+            }
+            self.add_update_document(document)
+
+    def handle_fiscal_doc_id(self, root_element, scheme):
+        elements = root_element.xpath(f"//cac:ProcurementProjectLot[cbc:ID/@schemeName='{scheme}']/cac:TenderingTerms/cac:FiscalLegislationDocumentReference/cbc:ID", namespaces=self.parser.nsmap)
+        for elem in elements:
+            lot_id = self.parser.find_text(elem, "./../../../../cbc:ID", namespaces=self.parser.nsmap)
+            doc_id = elem.text
+            document = {
+                "id": doc_id,
+                "documentType": "legislation",
+                "relatedLots": [lot_id]
+            }
+            self.add_update_document(document)
+
+    def handle_environmental_legis(self, root_element, scheme):
+        elements = root_element.xpath(f"//cac:ProcurementProjectLot[cbc:ID/@schemeName='{scheme}']/cac:TenderingTerms/cac:EnvironmentalLegislationDocumentReference/cac:Attachment/cac:ExternalReference/cbc:URI", namespaces=self.parser.nsmap)
+        for elem in elements:
+            lot_id = self.parser.find_text(elem, "./../../../../cbc:ID", namespaces=self.parser.nsmap)
+            doc_id = self.parser.find_text(elem, "./../../cbc:ID", namespaces=self.parser.nsmap)
+            uri = elem.text
+            document = {
+                "id": doc_id,
+                "url": uri,
+                "relatedLots": [lot_id]
+            }
+            self.add_update_document(document)
+
+    def handle_employment_legis(self, root_element, scheme):
+        elements = root_element.xpath(f"//cac:ProcurementProjectLot[cbc:ID/@schemeName='{scheme}']/cac:TenderingTerms/cac:EmploymentLegislationDocumentReference/cac:Attachment/cac:ExternalReference/cbc:URI", namespaces=self.parser.nsmap)
+        for elem in elements:
+            lot_id = self.parser.find_text(elem, "./../../../../cbc:ID", namespaces=self.parser.nsmap)
+            doc_id = self.parser.find_text(elem, "./../../cbc:ID", namespaces=self.parser.nsmap)
+            uri = elem.text
+            document = {
+                "id": doc_id,
+                "url": uri,
+                "relatedLots": [lot_id]
+            }
+            self.add_update_document(document)
+
+    def add_update_contract_document(self, contract_id, document):
+        contract = next((c for c in self.get_contracts() if c['id'] == contract_id), None)
+        if contract:
+            contract.setdefault('documents', []).append(document)
+        else:
+            self.awards.append({
+                "id": contract_id,
+                "documents": [document]
+            })
+
+    def get_contracts(self):
+        return self.awards
 
     def get_direct_award_justification_description(self, code):
         # Assuming a mapping dictionary or method that maps justification codes to their descriptions
@@ -1943,6 +2096,8 @@ class TEDtoOCDSConverter:
         procurement_method_rationale, procurement_method_rationale_classifications = self.parse_direct_award_justification(root)
         procedure_features = self.parse_procedure_features(root)
 
+        self.handle_bidding_documents(root)
+        
         tender = {
             "id": self.parser.find_text(root, ".//cbc:ContractFolderID"),
             "status": form_type['tender_status'],
@@ -1984,7 +2139,7 @@ class TEDtoOCDSConverter:
         unique_parties = {}
         for party in self.parties:
             if not party.get("id"):
-                logging.warning("Party without ID found, skipping: {}".format(party))
+                logging.warning(f"Party without ID found, skipping: {party}")
                 continue
 
             if party["id"] not in unique_parties:
@@ -2017,6 +2172,8 @@ class TEDtoOCDSConverter:
                 unique_bos = {bo["id"]: bo for bo in party["beneficialOwners"]}
                 party["beneficialOwners"] = list(unique_bos.values())
 
+        notice_uri = self.parser.find_text(root, ".//cbc:URI", namespaces=self.parser.nsmap)
+        
         release = {
             "id": self.parser.find_text(root, "./cbc:ID"),
             "ocid": ocid,
@@ -2024,11 +2181,12 @@ class TEDtoOCDSConverter:
             "initiationType": "tender",
             "tag": form_type['tag'],
             "parties": unique_parties,
-            "language": language,  # Add the notice language here
+            "language": language,
             "tender": tender,
             "relatedProcesses": self.parse_related_processes(root),
             "awards": self.awards,
             "contracts": [{"dateSigned": contract_signed_date}] if contract_signed_date else [],
+            "uri": notice_uri  # Add the notice URI here
         }
 
         if "bids" in self.tender:
@@ -2171,7 +2329,7 @@ def convert_ted_to_ocds(xml_file):
         raise
 
 # Example usage
-xml_file = "2023-698390.xml"
+xml_file = "2023-618728.xml"
 ocds_json = convert_ted_to_ocds(xml_file)
 print(ocds_json)
 
