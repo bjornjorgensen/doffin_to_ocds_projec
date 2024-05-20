@@ -1496,6 +1496,14 @@ class TEDtoOCDSConverter:
             "items": self.parse_items(lot_element)
         }
 
+        # BT-23-Lot: Main Nature
+        main_nature_code = self.parser.find_text(lot_element, "./cac:ProcurementProject/cbc:ProcurementTypeCode[@listName='contract-nature']")
+        if main_nature_code:
+            if main_nature_code in ['works', 'services']:
+                lot['mainProcurementCategory'] = main_nature_code
+            elif main_nature_code == 'supplies':
+                lot['mainProcurementCategory'] = 'goods'
+
         # Only add value if an estimated value is provided
         if estimated_value is not None and currency_id is not None:
             lot['value'] = {
@@ -2190,6 +2198,21 @@ class TEDtoOCDSConverter:
             "documents": self.tender.get("documents", []),  # Include documents in the tender structure
             "items": classifications  # Include items with classifications
         }
+
+        # BT-23-Part & BT-23-Procedure: Main Nature
+        part_main_nature_code = self.parser.find_text(root, ".//cac:ProcurementProjectLot[cbc:ID/@schemeName='Part']/cac:ProcurementProject/cbc:ProcurementTypeCode[@listName='contract-nature']")
+        if part_main_nature_code:
+            if part_main_nature_code in ['works', 'services']:
+                tender['mainProcurementCategory'] = part_main_nature_code
+            elif part_main_nature_code == 'supplies':
+                tender['mainProcurementCategory'] = 'goods'
+
+        procedure_main_nature_code = self.parser.find_text(root, ".//cac:ProcurementProject/cbc:ProcurementTypeCode")
+        if procedure_main_nature_code:
+            if procedure_main_nature_code in ['works', 'services']:
+                tender['mainProcurementCategory'] = procedure_main_nature_code
+            elif procedure_main_nature_code == 'supplies':
+                tender['mainProcurementCategory'] = 'goods'
 
         for lot_element in self.parser.find_nodes(root, ".//cac:ProcurementProjectLot"):
             auction_url, submission_url = self.fetch_urls_for_lot(lot_element, 'Lot')
