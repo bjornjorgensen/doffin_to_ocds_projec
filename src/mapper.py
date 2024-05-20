@@ -1286,25 +1286,24 @@ class TEDtoOCDSConverter:
         activity_descriptions = {
             "airport": "Airport-related activities",
             "defence": "Defence",
-            "economic": "Economic affairs",
+            "econ-aff": "Economic affairs",
             "education": "Education",
             "electricity": "Electricity-related activities",
-            "environment": "Environmental protection",
-            "coal": "Exploration or extraction of coal or other solid fuels",
-            "gas-oil": "Extraction of gas or oil",
-            "public-services": "General public services",
-            "health": "Health",
-            "housing": "Housing and community amenities",
-            "port": "Port-related activities",
-            "postal": "Postal services",
+            "env-pro": "Environmental protection",
             "gas-heat": "Production, transport or distribution of gas or heat",
-            "public-order": "Public order and safety",
-            "railway": "Railway services",
-            "recreation": "Recreation, culture and religion",
-            "social": "Social protection",
-            "urban-transport": "Urban railway, tramway, trolleybus or bus services",
-            "water": "Water-related activities",
-            "gen-pub": "General public services"
+            "gas-oil": "Extraction of gas or oil",
+            "gen-pub": "General public services",
+			"hc-am": "Housing and community amenities",
+            "health": "Health",
+            "port": "Port-related activities",
+            "post": "Postal services",
+            "pub-os": "Public order and safety",
+            "rail": "Railway services",
+            "rcr": "Recreation, culture and religion",
+            "soc-pro": "Social protection",
+			"solid-fuel": "Exploration or extraction of coal or other solid fuels",	
+            "urttb": "Urban railway, tramway, trolleybus or bus services",
+            "water": "Water-related activities"
         }
         return activity_descriptions.get(activity_code, "")
     
@@ -2172,7 +2171,7 @@ def convert_ted_to_ocds(xml_file):
         raise
 
 # Example usage
-xml_file = "2022-319091.xml"
+xml_file = "2023-698390.xml"
 ocds_json = convert_ted_to_ocds(xml_file)
 print(ocds_json)
 
