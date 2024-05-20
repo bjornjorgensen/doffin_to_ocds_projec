@@ -3,7 +3,7 @@ import uuid
 import json
 from lxml import etree
 from datetime import datetime
-import re
+import dateutil.parser
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.DEBUG)
@@ -157,30 +157,89 @@ class TEDtoOCDSConverter:
                         "currency": currency_id
                     }
                     bid["value"] = tender_value
+    def fetch_bt500_organization_names(self, root_element):
+        """
+        Fetch names of organizations (BT-500) and update the organization part names (BT-16).
+        """
+
+        # BT-500-Organization-Company
+        companies = root_element.findall(".//efac:Organization/efac:Company", namespaces=self.parser.nsmap)
+        for company in companies:
+            org_id = self.parser.find_text(company, "./cac:PartyIdentification/cbc:ID[@schemeName='organization']")
+            if org_id:
+                organization = self.get_or_create_organization(self.parties, org_id)
+                org_name = self.parser.find_text(company, "./cac:PartyName/cbc:Name")
+                department = self.parser.find_text(company, "./cac:PostalAddress/cbc:Department")
+                organization['name'] = f"{org_name} - {department}" if department else org_name
+
+        # BT-500-Organization-TouchPoint
+        touchpoints = root_element.findall(".//efac:Organization/efac:TouchPoint", namespaces=self.parser.nsmap)
+        for touchpoint in touchpoints:
+            org_id = self.parser.find_text(touchpoint, "./cac:PartyIdentification/cbc:ID[@schemeName='touchpoint']")
+            if org_id:
+                organization = self.get_or_create_organization(self.parties, org_id)
+                org_name = self.parser.find_text(touchpoint, "./cac:PartyName/cbc:Name")
+                department = self.parser.find_text(touchpoint, "./cac:PostalAddress/cbc:Department")
+                organization['name'] = f"{org_name} - {department}" if department else org_name
 
     def fetch_bt47_participants(self, root_element):
+        """
+        Fetch BT-47: Lot Participants and map to selectedParticipants array.
+        """
         lots = root_element.findall(".//cac:ProcurementProjectLot", namespaces=self.parser.nsmap)
         for lot in lots:
-            lot_id = self.parser.find_text(lot, "./cbc:ID", namespaces=self.parser.nsmap)
+            lot_id = self.parser.find_text(lot, "./cbc:ID")
             participants = lot.findall(".//cac:PreSelectedParty", namespaces=self.parser.nsmap)
             for participant in participants:
-                party_name = self.parser.find_text(participant, "./cac:PartyName/cbc:Name", namespaces=self.parser.nsmap)
+                party_name = self.parser.find_text(participant, "./cac:PartyName/cbc:Name")
                 party_id = str(uuid.uuid4())
-
                 self.parties.append({
                     "id": party_id,
                     "name": party_name,
                     "roles": ["selectedParticipant"]
                 })
-                for lot_item in lots:
-                    lot_id = self.parser.find_text(lot_item, "./cbc:ID", namespaces=self.parser.nsmap)
-                    for tender_lot in root_element.findall(".//efac:TenderLot", namespaces=self.parser.nsmap):
-                        tender_id = self.parser.find_text(tender_lot, "./cbc:ID", namespaces=self.parser.nsmap)
-                        if tender_id == lot_id:
-                            lot_item.setdefault("designContest", {}).setdefault("selectedParticipants", []).append({
-                                "id": party_id,
-                                "name": party_name
-                            })
+
+                for tender_lot in self.tender["lots"]:
+                    if tender_lot["id"] == lot_id:
+                        tender_lot.setdefault("designContest", {}).setdefault("selectedParticipants", []).append({"id": party_id, "name": party_name})
+
+    def fetch_opt_300_contract_signatory(self, root_element):
+        signatory_parties = root_element.findall(".//efac:NoticeResult/efac:SettledContract/cac:SignatoryParty", namespaces=self.parser.nsmap)
+        for signatory_party in signatory_parties:
+            signatory_id = self.parser.find_text(signatory_party, "./cac:PartyIdentification/cbc:ID", namespaces=self.parser.nsmap)
+            if signatory_id:
+                org = self.get_or_create_organization(self.parties, signatory_id)
+                if 'buyer' not in org['roles']:
+                    org['roles'].append('buyer')
+                org_name = self.parser.find_text(
+                    root_element, 
+                    f".//efac:Organization[efac:Company/cac:PartyIdentification/cbc:ID='{signatory_id}']/efac:Company/cac:PartyName/cbc:Name", 
+                    namespaces=self.parser.nsmap
+                )
+                if org_name:
+                    org["name"] = org_name
+                contract_id = self.parser.find_text(signatory_party, './../../cbc:ID', namespaces=self.parser.nsmap)
+                for award in self.awards:
+                    if contract_id in award.get("relatedContracts", []):
+                        award.setdefault("buyers", []).append({"id": signatory_id})
+
+    def fetch_opt_300_procedure_service_provider(self, root_element):
+        service_providers = root_element.findall(".//cac:ContractingParty/cac:ServiceProviderParty/cac:Party", namespaces=self.parser.nsmap)
+        for svc_provider in service_providers:
+            svc_provider_id = self.parser.find_text(svc_provider, "./cac:PartyIdentification/cbc:ID", namespaces=self.parser.nsmap)
+            if svc_provider_id:
+                org = self.get_or_create_organization(self.parties, svc_provider_id)
+                if 'procurementServiceProvider' not in org.get('roles', []):
+                    org.setdefault('roles', []).append('procurementServiceProvider')
+
+                org_name = self.parser.find_text(
+                    root_element, 
+                    f".//efac:Organization[efac:Company/cac:PartyIdentification/cbc:ID='{svc_provider_id}']/efac:Company/cac:PartyName/cbc:Name", 
+                    namespaces=self.parser.nsmap
+                )
+                if org_name:
+                    org["name"] = org_name
+
 
     def fetch_bt5010_lot_financing(self, root_element):
         funders = []
@@ -1272,14 +1331,32 @@ class TEDtoOCDSConverter:
         return legal_types
 
     def get_buyer_legal_type_description(self, code):
-        # Define a mapping of buyer legal type codes to descriptions based on the authority table
+        # Define a mapping of buyer legal type codes to short descriptions
         legal_type_mapping = {
-            "central-gov-agency": "Central government authority",
-            "regional-gov-agency": "Regional or local authority",
             "body-pl": "Body governed by public law",
-            "public-undertaking": "Public undertaking",
-            # Add other codes and descriptions as needed
+            "body-pl-cga": "Body governed by public law, controlled by a central government authority",
+            "body-pl-la": "Body governed by public law, controlled by a local authority",
+            "body-pl-ra": "Body governed by public law, controlled by a regional authority",
+            "cga": "Central government authority",
+            "def-cont": "Defence contractor",
+            "eu-ins-bod-ag": "EU institution, body or agency",
+            "eu-int-org": "European Institution/Agency or International Organisation",
+            "grp-p-aut": "Group of public authorities",
+            "int-org": "International organisation",
+            "la": "Local authority",
+            "org-sub": "Organisation awarding a contract subsidised by a contracting authority",
+            "org-sub-cga": "Organisation awarding a contract subsidised by a central government authority",
+            "org-sub-la": "Organisation awarding a contract subsidised by a local authority",
+            "org-sub-ra": "Organisation awarding a contract subsidised by a regional authority",
+            "pub-undert": "Public undertaking",
+            "pub-undert-cga": "Public undertaking, controlled by a central government authority",
+            "pub-undert-la": "Public undertaking, controlled by a local authority",
+            "pub-undert-ra": "Public undertaking, controlled by a regional authority",
+            "ra": "Regional authority",
+            "rl-aut": "Regional or local authority",
+            "spec-rights-entity": "Entity with special or exclusive rights",
         }
+
         return legal_type_mapping.get(code, "Unknown legal type")
 
     def map_activity_code(self, activity_code, activity_description):
@@ -1556,22 +1633,14 @@ class TEDtoOCDSConverter:
         }
         return mapping.get(code, code)
 
-    def fetch_notice_languages(self, element):
-        languages = []
-        notice_language_code = self.parser.find_text(element, ".//cbc:NoticeLanguageCode")
+    def fetch_notice_language(self, root_element):
+        notice_language_code = self.parser.find_text(root_element, ".//cbc:NoticeLanguageCode")
         if notice_language_code:
             language_iso = self.convert_language_code(notice_language_code, code_type='language')
-            if language_iso:
-                languages.append(language_iso.upper())
+            return language_iso.lower() if language_iso else None
+        return None
 
-        logging.debug(f'Fetched notice languages: {languages}')
-        return languages
-
-    @staticmethod
-    def convert_language_code(code, code_type='language'):
-        """
-        Convert codes based on the provided type: 'language' for language codes, 'country' for country codes.
-        """
+    def convert_language_code(self, code, code_type='language'):
         language_mapping = {
             'ENG': 'en',  # English
             'FRA': 'fr',  # French
@@ -1600,18 +1669,8 @@ class TEDtoOCDSConverter:
             'ISL': 'is'   # Icelandic
         }
 
-        country_mapping = {
-            'GBR': 'GB',
-            'USA': 'US',
-            'DEU': 'DE',
-            'FRA': 'FR',
-            # Add other mappings as needed
-        }
-
         if code_type == 'language':
-            return language_mapping.get(code.upper())
-        elif code_type == 'country':
-            return country_mapping.get(code.upper())
+            return language_mapping.get(code.upper(), code.lower())
         return None
    
     def parse_tender_values(self, root):
@@ -1829,6 +1888,7 @@ class TEDtoOCDSConverter:
         self.fetch_bt505_urls(root)
         self.handle_bt14_and_bt707(root)
         self.fetch_opt_301_lot_mediator(root)
+        self.fetch_opt_301_part_review_org(root)
         self.fetch_opt_301_lot_review_org(root)
         self.fetch_bt508_buyer_profile(root)
         self.fetch_bt610_activity_entity(root)
@@ -1837,6 +1897,12 @@ class TEDtoOCDSConverter:
         self.fetch_opt_300_buyer_technical_reference(root)
         self.fetch_opt_301_tenderer_maincont(root)
         self.fetch_opt_310_tender(root)
+
+        self.fetch_opt_300_contract_signatory(root)
+        self.fetch_opt_300_procedure_service_provider(root)
+        self.fetch_bt500_organization_names(root)
+        self.fetch_bt47_participants(root)
+        language = self.fetch_notice_language(root)  # Fetch the notice language
 
         activities = self.parse_activity_authority(root)
         for activity in activities:
@@ -1852,10 +1918,8 @@ class TEDtoOCDSConverter:
 
         lots, aggregated_part_value, award_criteria_found = self.parse_lots(root)
         legal_basis = self.get_legal_basis(root)
-        languages = self.fetch_notice_languages(root)
         additional_info = self.fetch_bt300_additional_info(root)
         tender_estimated_value = self.fetch_tender_estimated_value(root)
-        document_language = languages[0] if languages else None
 
         procedure_type = self.parse_procedure_type(root)
         procurement_method_rationale, procurement_method_rationale_classifications = self.parse_direct_award_justification(root)
@@ -1897,11 +1961,14 @@ class TEDtoOCDSConverter:
                     "submissionMethodDetails": part_submission_url if part_submission_url else None
                 })
 
-            if any(lot_info.values()):
-                self.add_or_update_lot(tender['lots'], lot_info)
+            self.add_or_update_lot(tender['lots'], lot_info)
 
         unique_parties = {}
         for party in self.parties:
+            if not party.get("id"):
+                logging.warning("Party without ID found, skipping: {}".format(party))
+                continue
+
             if party["id"] not in unique_parties:
                 unique_parties[party["id"]] = party
             else:
@@ -1910,11 +1977,10 @@ class TEDtoOCDSConverter:
                     if role not in existing_party["roles"]:
                         existing_party["roles"].append(role)
                 for key, value in party.items():
-                    if key in ["roles", "id"]:
+                    if key in ["roles", "id", "name"]:
                         continue
                     elif key in existing_party and isinstance(existing_party[key], list):
                         if key == "beneficialOwners":
-                            # Merge beneficial owners properly
                             bo_ids = {bo["id"] for bo in existing_party[key]}
                             for bo in value:
                                 if bo["id"] not in bo_ids:
@@ -1926,10 +1992,8 @@ class TEDtoOCDSConverter:
                     else:
                         existing_party[key] = value
 
-        # Convert merged parties back to list
         unique_parties = list(unique_parties.values())
 
-        # Remove duplicate beneficial owners
         for party in unique_parties:
             if "beneficialOwners" in party:
                 unique_bos = {bo["id"]: bo for bo in party["beneficialOwners"]}
@@ -1942,7 +2006,7 @@ class TEDtoOCDSConverter:
             "initiationType": "tender",
             "tag": form_type['tag'],
             "parties": unique_parties,
-            "language": document_language,
+            "language": language,  # Add the notice language here
             "tender": tender,
             "relatedProcesses": self.parse_related_processes(root),
             "awards": self.awards,
@@ -1975,7 +2039,7 @@ class TEDtoOCDSConverter:
         cleaned_release = self.clean_release_structure(release)
         cleaned_release = self.remove_schema_from_identifier(cleaned_release)
 
-        logger.info('Conversion to OCDS format completed.')
+        logging.info('Conversion to OCDS format completed.')
         return cleaned_release
                              
 
@@ -2001,6 +2065,22 @@ class TEDtoOCDSConverter:
         lots = root_element.xpath(".//cac:ProcurementProjectLot[cbc:ID/@schemeName='Lot']", namespaces=self.parser.nsmap)
         for lot in lots:
             review_org_id = self.parser.find_text(lot, ".//cac:TenderingTerms/cac:AppealTerms/cac:AppealReceiverParty/cac:PartyIdentification/cbc:ID", namespaces=self.parser.nsmap)
+            if review_org_id:
+                existing_org = next((org for org in self.parties if org['id'] == review_org_id), None)
+                if existing_org:
+                    if 'reviewBody' not in existing_org['roles']:
+                        existing_org['roles'].append('reviewBody')
+                else:
+                    self.parties.append({
+                        "id": review_org_id,
+                        "roles": ["reviewBody"]
+                    })
+
+    def fetch_opt_301_part_review_org(self, root_element):
+        # OPT-301-Part-ReviewOrg: Review Organization Technical Identifier Reference for Parts
+        parts = root_element.xpath(".//cac:ProcurementProjectLot[cbc:ID/@schemeName='Part']", namespaces=self.parser.nsmap)
+        for part in parts:
+            review_org_id = self.parser.find_text(part, ".//cac:TenderingTerms/cac:AppealTerms/cac:AppealReceiverParty/cac:PartyIdentification/cbc:ID", namespaces=self.parser.nsmap)
             if review_org_id:
                 existing_org = next((org for org in self.parties if org['id'] == review_org_id), None)
                 if existing_org:
@@ -2073,7 +2153,7 @@ def convert_ted_to_ocds(xml_file):
         raise
 
 # Example usage
-xml_file = "can_24_minimal.xml"
+xml_file = "2022-319091.xml"
 ocds_json = convert_ted_to_ocds(xml_file)
 print(ocds_json)
 
