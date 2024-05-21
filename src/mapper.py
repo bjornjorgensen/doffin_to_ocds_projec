@@ -174,6 +174,115 @@ class TEDtoOCDSConverter:
         else:
             logging.warning("Part Presentation Code indicating all lots not found.")
 
+    def fetch_bt5010_lot_financing(self, root_element):
+        """
+        Fetches BT-5010: An identifier of the Union programme used to at least partially
+        finance the contract.
+        """
+        lots = root_element.findall(".//cac:ProcurementProjectLot", namespaces=self.parser.nsmap)
+        for lot in lots:
+            lot_id = self.parser.find_text(lot, "./cbc:ID", namespaces=self.parser.nsmap)
+            financings = lot.findall(".//efac:Funding/efbc:FinancingIdentifier", namespaces=self.parser.nsmap)
+            for financing in financings:
+                financing_id = financing.text
+                self.update_eu_funder(financing_id, lot_id)
+
+    # New Method to fetch BT-5011 Contract EU Funds Financing Identifier
+    def fetch_bt5011_contract_financing(self, root_element):
+        """
+        Fetches BT-5011: An identifier of the Union programme used to at least partially
+        finance the contract.
+        """
+        contracts = root_element.findall(".//efac:SettledContract", namespaces=self.parser.nsmap)
+        for contract in contracts:
+            contract_id = self.parser.find_text(contract, "./cbc:ID", namespaces=self.parser.nsmap)
+            financings = contract.findall(".//efac:Funding/efbc:FinancingIdentifier", namespaces=self.parser.nsmap)
+            for financing in financings:
+                financing_id = financing.text
+                self.update_eu_funder(financing_id, contract_id, level='contract')
+
+    # New Method to fetch BT-60 Lot EU Funds
+    def fetch_bt60_lot_funding(self, root_element):
+        """
+        Fetches BT-60: The procurement is at least partially financed by Union funds.
+        """
+        lots = root_element.findall(".//cac:ProcurementProjectLot", namespaces=self.parser.nsmap)
+        for lot in lots:
+            funding_program_code = self.parser.find_text(lot, ".//cbc:FundingProgramCode[@listName='eu-funded']", namespaces=self.parser.nsmap)
+            if funding_program_code:
+                self.update_eu_funder('EU-funds')
+
+    # New Method to fetch OPT-301 LotResult Financing
+    def fetch_opt_301_lotresult_financing(self, root_element):
+        """
+        Fetches OPT-301: Financing Party (ID reference) for LotResult.
+        """
+        lot_results = root_element.findall(".//efac:LotResult", namespaces=self.parser.nsmap)
+        for lot_result in lot_results:
+            financing_party_id = self.parser.find_text(lot_result, ".//cac:FinancingParty/cac:PartyIdentification/cbc:ID", namespaces=self.parser.nsmap)
+            if financing_party_id:
+                self.update_funder_role(financing_party_id)
+
+    def update_eu_funder(self, financing_id=None, related_id=None, level='lot'):
+        """
+        Updates the EU funder finance information.
+        :param financing_id: Financing Identifier
+        :param related_id: Related Lot or Contract ID
+        :param level: Specifies if the level is 'lot' or 'contract'
+        """
+        eu_funder = next((p for p in self.parties if p.get('name') == 'European Union'), None)  # Use .get('name')
+        if not eu_funder:
+            eu_funder = {
+                "id": str(uuid.uuid4()),
+                "name": 'European Union',
+                "roles": ['funder']
+            }
+            self.parties.append(eu_funder)
+        
+        if level == 'lot' and related_id:
+            self.budget_finances.append({
+                "id": financing_id or 'EU-funded',
+                "relatedLots": [related_id],
+                "financingParty": {
+                    "id": eu_funder["id"],
+                    "name": eu_funder["name"]
+                }
+            })
+        elif level == 'contract' and related_id:
+            for award in self.awards:
+                if award["id"] == related_id:
+                    if "finance" not in award:
+                        award["finance"] = []
+                    award["finance"].append({
+                        "id": financing_id or 'EU-funded',
+                        "financingParty": {
+                            "id": eu_funder["id"],
+                            "name": eu_funder["name"]
+                        }
+                    })
+                    break
+        else:
+            for award in self.awards:
+                if related_id in award.get("relatedLots", []):
+                    if "finance" not in award:
+                        award["finance"] = []
+                    award["finance"].append({
+                        "id": financing_id or 'EU-funded',
+                        "financingParty": {
+                            "id": eu_funder["id"],
+                            "name": eu_funder["name"]
+                        }
+                    })
+
+    def update_funder_role(self, funding_party_id):
+        """
+        Updates the role of the funding party to 'funder', if not already set.
+        :param funding_party_id: ID of the financing party
+        """
+        funder = self.get_or_create_organization(self.parties, funding_party_id)
+        if "funder" not in funder["roles"]:
+            funder["roles"].append("funder")
+
     def fetch_bt3202_to_ocds(self, root_element):
         # Ensure the 'bids' dictionary and 'details' list are initialized
         if 'bids' not in self.tender:
@@ -260,6 +369,8 @@ class TEDtoOCDSConverter:
                         "currency": currency_id
                     }
                     bid["value"] = tender_value
+
+
     def fetch_bt500_organization_names(self, root_element):
         """
         Fetch names of organizations (BT-500) and update the organization part names (BT-16).
@@ -344,75 +455,6 @@ class TEDtoOCDSConverter:
                     org["name"] = org_name
 
 
-    def fetch_bt5010_lot_financing(self, root_element):
-        funders = []
-        lots = root_element.findall(".//cac:ProcurementProjectLot", namespaces=self.parser.nsmap)
-        for lot in lots:
-            lot_id = self.parser.find_text(lot, "./cbc:ID", namespaces=self.parser.nsmap)
-            fundings = lot.findall(".//efac:Funding", namespaces=self.parser.nsmap)
-            for funding in fundings:
-                financing_id = self.parser.find_text(funding, "./efbc:FinancingIdentifier", namespaces=self.parser.nsmap)
-                funders.append(financing_id)
-
-        for financing in funders:
-            eu_funder = next((x for x in self.parties if x['name'] == "European Union"), None)
-            if not eu_funder:
-                eu_funder = {
-                    "id": str(uuid.uuid4()),
-                    "name": "European Union",
-                    "roles": ["funder"]
-                }
-                self.parties.append(eu_funder)
-
-            finance_object = {
-                "id": financing,
-                "relatedLots": [
-                    {
-                        "id": financing
-                    }
-                ],
-                "financingParty": {
-                    "id": eu_funder['id'],
-                    "name": eu_funder['name']
-                }
-            }
-            self.budget_finances.append(finance_object)
-        return {}
-
-    def fetch_bt5011_contract_financing(self, root_element):
-        funders = []
-        contracts = root_element.findall(".//efac:SettledContract", namespaces=self.parser.nsmap)
-        for contract in contracts:
-            contract_id = self.parser.find_text(contract, "./cbc:ID", namespaces=self.parser.nsmap)
-            fundings = contract.findall(".//efac:Funding", namespaces=self.parser.nsmap)
-            for funding in fundings:
-                financing_id = self.parser.find_text(funding, "./efbc:FinancingIdentifier", namespaces=self.parser.nsmap)
-                funders.append(financing_id)
-
-        for financing in funders:
-            eu_funder = next((x for x in self.parties if x['name'] == "European Union"), None)
-            if not eu_funder:
-                eu_funder = {
-                    "id": str(uuid.uuid4()),
-                    "name": "European Union",
-                    "roles": ["funder"]
-                }
-                self.parties.append(eu_funder)
-
-            finance_object = {
-                "id": financing,
-                "relatedLots": [
-                    {
-                        "id": financing
-                    }
-                ],
-                "financingParty": {
-                    "id": eu_funder['id'],
-                    "name": eu_funder['name']
-                }
-            }
-            self.budget_finances.append(finance_object)
-        return {}
 
     def fetch_bt508_buyer_profile(self, root_element):
         buyers = []
@@ -437,28 +479,6 @@ class TEDtoOCDSConverter:
                 self.parties.append(organization)
         return {}
 
-    def fetch_bt60_lot_funding(self, root_element):
-        funders = []
-        lots = root_element.findall(".//cac:ProcurementProjectLot", namespaces=self.parser.nsmap)
-        for lot in lots:
-            lot_id = self.parser.find_text(lot, "./cbc:ID", namespaces=self.parser.nsmap)
-            funding = lot.find(".//cbc:FundingProgramCode[@listName='eu-funded']", namespaces=self.parser.nsmap)
-            if funding is not None and funding.text:
-                funders.append({
-                    "lot_id": lot_id,
-                    "fundingProgramCode": funding.text,
-                })
-
-        # Update parties and their roles
-        eu_funder = next((x for x in self.parties if x['name'] == "European Union"), None)
-        if not eu_funder:
-            eu_funder = {
-                "id": str(uuid.uuid4()),  # Generate unique id.
-                "name": "European Union",
-                "roles": ["funder"]
-            }
-            self.parties.append(eu_funder)
-        return {}
 
     def fetch_bt610_activity_entity(self, root_element):
         activities = []
@@ -2224,206 +2244,7 @@ class TEDtoOCDSConverter:
             "items": items
         }
 
-    def convert_tender_to_ocds(self):
-        root = self.parser.root
-        ocid = "ocds-" + str(uuid.uuid4())
-        dispatch_datetime = self.get_dispatch_date_time()
-        contract_signed_date = self.get_contract_signed_date()
-        tender_title = self.parser.find_text(root, ".//cac:ProcurementProject/cbc:Name", namespaces=self.parser.nsmap)
-
-        form_type = self.get_form_type(root)
-
-        self.parties = self.parse_organizations(root)
-        self.fetch_bt3202_to_ocds(root)
-        self.fetch_bt506_emails(root)
-        self.fetch_bt505_urls(root)
-        self.handle_bt14_and_bt707(root)
-        self.fetch_opt_301_lot_mediator(root)
-        self.fetch_opt_301_part_review_org(root)
-        self.fetch_opt_301_lot_review_org(root)
-        self.fetch_bt508_buyer_profile(root)
-        self.fetch_bt610_activity_entity(root)
-        self.fetch_bt740_contracting_entity(root)
-        self.fetch_opt_300_signatory_reference(root)
-        self.fetch_opt_300_buyer_technical_reference(root)
-        self.fetch_opt_301_tenderer_maincont(root)
-        self.fetch_opt_310_tender(root)
-
-        self.fetch_opt_300_contract_signatory(root)
-        self.fetch_opt_300_procedure_service_provider(root)
-        self.fetch_bt500_organization_names(root)
-        self.fetch_bt47_participants(root)
-        self.fetch_bt710_bt711_bid_statistics(root)
-        self.fetch_bt712_complaints_statistics(root)
-        self.fetch_bt31_max_lots_submitted(root) 
-        self.fetch_bt33_max_lots_awarded(root)  
-        self.fetch_bt763_lots_all_required(root)  
-        language = self.fetch_notice_language(root)
-
-        activities = self.parse_activity_authority(root)
-        for activity in activities:
-            for party in self.parties:
-                if "buyer" in party.get("roles", []):
-                    party.setdefault("details", {}).setdefault("classifications", []).append(activity)
-
-        legal_types = self.parse_buyer_legal_type(root)
-        for legal_type in legal_types:
-            for party in self.parties:
-                if "buyer" in party.get("roles", []):
-                    party.setdefault("details", {}).setdefault("classifications", []).append(legal_type)
-
-        lots, aggregated_part_value, award_criteria_found = self.parse_lots(root)
-        legal_basis = self.get_legal_basis(root)
-        additional_info = self.fetch_bt300_additional_info(root)
-        tender_estimated_value = self.fetch_tender_estimated_value(root)
-
-        procedure_type = self.parse_procedure_type(root)
-        procurement_method_rationale, procurement_method_rationale_classifications = self.parse_direct_award_justification(root)
-        procedure_features = self.parse_procedure_features(root)
-
-        classifications = self.parse_classifications(root)
-
-        self.handle_bidding_documents(root)
-
-        tender = {
-            "id": self.parser.find_text(root, ".//cbc:ContractFolderID"),
-            "status": form_type['tender_status'],
-            "title": tender_title,
-            "description": additional_info,
-            "legalBasis": legal_basis,
-            "lots": lots,
-            "lotGroups": [] if aggregated_part_value else None,
-            "awardCriteria": {
-                "criteria": [criterion for lot in lots for criterion in lot.get('awardCriteria', {}).get('criteria', [])]
-            } if award_criteria_found else None,
-            "procurementMethod": procedure_type["method"] if procedure_type else None,
-            "procurementMethodDetails": procedure_type["details"] if procedure_type else None,
-            "procurementMethodRationale": procurement_method_rationale if procurement_method_rationale else None,
-            "procurementMethodRationaleClassifications": procurement_method_rationale_classifications if procurement_method_rationale_classifications else None,
-            "value": tender_estimated_value,
-            "procedureFeatures": procedure_features if procedure_features else None,
-            "submissionMethod": ["electronicSubmission"],
-            "documents": self.tender.get("documents", []),  # Include documents in the tender structure
-            "items": classifications  # Include items with classifications
-        }
-
-        # BT-23-Part & BT-23-Procedure: Main Nature
-        part_main_nature_code = self.parser.find_text(root, ".//cac:ProcurementProjectLot[cbc:ID/@schemeName='Part']/cac:ProcurementProject/cbc:ProcurementTypeCode[@listName='contract-nature']")
-        if part_main_nature_code:
-            if part_main_nature_code in ['works', 'services']:
-                tender['mainProcurementCategory'] = part_main_nature_code
-            elif part_main_nature_code == 'supplies':
-                tender['mainProcurementCategory'] = 'goods'
-
-        procedure_main_nature_code = self.parser.find_text(root, ".//cac:ProcurementProject/cbc:ProcurementTypeCode")
-        if procedure_main_nature_code:
-            if procedure_main_nature_code in ['works', 'services']:
-                tender['mainProcurementCategory'] = procedure_main_nature_code
-            elif procedure_main_nature_code == 'supplies':
-                tender['mainProcurementCategory'] = 'goods'
-
-        for lot_element in self.parser.find_nodes(root, ".//cac:ProcurementProjectLot"):
-            auction_url, submission_url = self.fetch_urls_for_lot(lot_element, 'Lot')
-            lot_id = self.parser.find_text(lot_element, "./cbc:ID", namespaces=self.parser.nsmap)
-            lot_info = {
-                "id": lot_id,
-                "techniques": {"electronicAuction": {"url": auction_url}} if auction_url else None,
-                "submissionMethodDetails": submission_url if submission_url else None
-            }
-
-            part_auction_url, part_submission_url = self.fetch_urls_for_lot(lot_element, 'Part')
-            if part_auction_url or part_submission_url:
-                lot_info.update({
-                    "techniques": {"electronicAuction": {"url": part_auction_url}} if part_auction_url else None,
-                    "submissionMethodDetails": part_submission_url if part_submission_url else None
-                })
-
-            self.add_or_update_lot(tender['lots'], lot_info)
-
-        unique_parties = {}
-        for party in self.parties:
-            if not party.get("id"):
-                logging.warning(f"Party without ID found, skipping: {party}")
-                continue
-
-            if party["id"] not in unique_parties:
-                unique_parties[party["id"]] = party
-            else:
-                existing_party = unique_parties[party["id"]]
-                for role in party.get("roles", []):
-                    if role not in existing_party["roles"]:
-                        existing_party["roles"].append(role)
-                for key, value in party.items():
-                    if key in ["roles", "id", "name"]:
-                        continue
-                    elif key in existing_party and isinstance(existing_party[key], list):
-                        if key == "beneficialOwners":
-                            bo_ids = {bo["id"] for bo in existing_party[key]}
-                            for bo in value:
-                                if bo["id"] not in bo_ids:
-                                    existing_party[key].append(bo)
-                        else:
-                            existing_party[key].extend(value)
-                    elif key in existing_party and isinstance(existing_party[key], dict):
-                        existing_party[key].update(value)
-                    else:
-                        existing_party[key] = value
-
-        unique_parties = list(unique_parties.values())
-
-        for party in unique_parties:
-            if "beneficialOwners" in party:
-                unique_bos = {bo["id"]: bo for bo in party["beneficialOwners"]}
-                party["beneficialOwners"] = list(unique_bos.values())
-
-        notice_uri = self.parser.find_text(root, ".//cbc:URI", namespaces=self.parser.nsmap)
-
-        release = {
-            "id": self.parser.find_text(root, "./cbc:ID"),
-            "ocid": ocid,
-            "date": dispatch_datetime,
-            "initiationType": "tender",
-            "tag": form_type['tag'],
-            "parties": unique_parties,
-            "language": language,
-            "tender": tender,
-            "relatedProcesses": self.parse_related_processes(root),
-            "awards": self.awards,
-            "contracts": [{"dateSigned": contract_signed_date}] if contract_signed_date else [],
-            "uri": notice_uri 
-        }
-
-        if "bids" in self.tender:
-            unique_bids = {}
-            for bid in self.tender["bids"]["details"]:
-                if bid["id"] not in unique_bids:
-                    unique_bids[bid["id"]] = bid
-                else:
-                    existing_bid = unique_bids[bid["id"]]
-                    for key, value in bid.items():
-                        if key in existing_bid and isinstance(existing_bid[key], list):
-                            if key == "tenderers":
-                                existing_tenderers = {t["id"] for t in existing_bid["tenderers"]}
-                                for t in value:
-                                    if t["id"] not in existing_tenderers:
-                                        existing_bid["tenderers"].append(t)
-                            else:
-                                existing_bid[key].extend(value)
-                        elif key in existing_bid and isinstance(existing_bid[key], dict):
-                            existing_bid[key].update(value)
-                        else:
-                            existing_bid[key] = value
-            self.tender["bids"]["details"] = list(unique_bids.values())
-            release['bids'] = self.tender["bids"]
-
-        cleaned_release = self.clean_release_structure(release)
-        cleaned_release = self.remove_schema_from_identifier(cleaned_release)
-
-        logging.info('Conversion to OCDS format completed.')
-        return cleaned_release
-                             
-
-
+                    
     def fetch_opt_301_lot_mediator(self, root_element):
         # OPT-301-Lot-Mediator: Mediator Technical Identifier Reference
         lots = root_element.xpath(".//cac:ProcurementProjectLot[cbc:ID/@schemeName='Lot']", namespaces=self.parser.nsmap)
@@ -2519,6 +2340,213 @@ class TEDtoOCDSConverter:
            currency = value_element.get('currencyID')
            return {"amount": amount, "currency": currency}
        return None
+
+    def convert_tender_to_ocds(self):
+        root = self.parser.root
+        ocid = "ocds-" + str(uuid.uuid4())
+        dispatch_datetime = self.get_dispatch_date_time()
+        contract_signed_date = self.get_contract_signed_date()
+        tender_title = self.parser.find_text(root, ".//cac:ProcurementProject/cbc:Name", namespaces=self.parser.nsmap)
+
+        form_type = self.get_form_type(root)
+
+        self.parties = self.parse_organizations(root)
+        self.fetch_bt3202_to_ocds(root)
+        self.fetch_bt506_emails(root)
+        self.fetch_bt505_urls(root)
+        self.handle_bt14_and_bt707(root)
+        self.fetch_opt_301_lot_mediator(root)
+        self.fetch_opt_301_part_review_org(root)
+        self.fetch_opt_301_lot_review_org(root)
+        self.fetch_bt508_buyer_profile(root)
+        self.fetch_bt610_activity_entity(root)
+        self.fetch_bt740_contracting_entity(root)
+        self.fetch_opt_300_signatory_reference(root)
+        self.fetch_opt_300_buyer_technical_reference(root)
+        self.fetch_opt_301_tenderer_maincont(root)
+        self.fetch_opt_310_tender(root)
+
+        self.fetch_opt_300_contract_signatory(root)
+        self.fetch_opt_300_procedure_service_provider(root)
+        self.fetch_bt500_organization_names(root)
+        self.fetch_bt47_participants(root)
+        self.fetch_bt710_bt711_bid_statistics(root)
+        self.fetch_bt712_complaints_statistics(root)
+        self.fetch_bt31_max_lots_submitted(root) 
+        self.fetch_bt33_max_lots_awarded(root)  
+        self.fetch_bt763_lots_all_required(root)
+        self.fetch_bt5010_lot_financing(root)  
+        self.fetch_bt5011_contract_financing(root) 
+        self.fetch_bt60_lot_funding(root)  
+        self.fetch_opt_301_lotresult_financing(root)  
+        language = self.fetch_notice_language(root)
+
+        activities = self.parse_activity_authority(root)
+        for activity in activities:
+            for party in self.parties:
+                if "buyer" in party.get("roles", []):
+                    party.setdefault("details", {}).setdefault("classifications", []).append(activity)
+
+        legal_types = self.parse_buyer_legal_type(root)
+        for legal_type in legal_types:
+            for party in self.parties:
+                if "buyer" in party.get("roles", []):
+                    party.setdefault("details", {}).setdefault("classifications", []).append(legal_type)
+
+        lots, aggregated_part_value, award_criteria_found = self.parse_lots(root)
+        legal_basis = self.get_legal_basis(root)
+        additional_info = self.fetch_bt300_additional_info(root)
+        tender_estimated_value = self.fetch_tender_estimated_value(root)
+
+        procedure_type = self.parse_procedure_type(root)
+        procurement_method_rationale, procurement_method_rationale_classifications = self.parse_direct_award_justification(root)
+        procedure_features = self.parse_procedure_features(root)
+
+        classifications = self.parse_classifications(root)
+
+        self.handle_bidding_documents(root)
+
+        tender = {
+            "id": self.parser.find_text(root, ".//cbc:ContractFolderID"),
+            "status": form_type['tender_status'],
+            "title": tender_title,
+            "description": additional_info,
+            "legalBasis": legal_basis,
+            "lots": lots,
+            "lotGroups": [] if aggregated_part_value else None,
+            "awardCriteria": {
+                "criteria": [criterion for lot in lots for criterion in lot.get('awardCriteria', {}).get('criteria', [])]
+            } if award_criteria_found else None,
+            "procurementMethod": procedure_type["method"] if procedure_type else None,
+            "procurementMethodDetails": procedure_type["details"] if procedure_type else None,
+            "procurementMethodRationale": procurement_method_rationale if procurement_method_rationale else None,
+            "procurementMethodRationaleClassifications": procurement_method_rationale_classifications if procurement_method_rationale_classifications else None,
+            "value": tender_estimated_value,
+            "procedureFeatures": procedure_features if procedure_features else None,
+            "submissionMethod": ["electronicSubmission"],
+            "documents": self.tender.get("documents", []),  
+            "items": classifications 
+        }
+
+        # BT-23-Part & BT-23-Procedure: Main Nature
+        part_main_nature_code = self.parser.find_text(root, ".//cac:ProcurementProjectLot[cbc:ID/@schemeName='Part']/cac:ProcurementProject/cbc:ProcurementTypeCode[@listName='contract-nature']")
+        if part_main_nature_code:
+            if part_main_nature_code in ['works', 'services']:
+                tender['mainProcurementCategory'] = part_main_nature_code
+            elif part_main_nature_code == 'supplies':
+                tender['mainProcurementCategory'] = 'goods'
+
+        procedure_main_nature_code = self.parser.find_text(root, ".//cac:ProcurementProject/cbc:ProcurementTypeCode")
+        if procedure_main_nature_code:
+            if procedure_main_nature_code in ['works', 'services']:
+                tender['mainProcurementCategory'] = procedure_main_nature_code
+            elif procedure_main_nature_code == 'supplies':
+                tender['mainProcurementCategory'] = 'goods'
+
+        for lot_element in self.parser.find_nodes(root, ".//cac:ProcurementProjectLot"):
+            auction_url, submission_url = self.fetch_urls_for_lot(lot_element, 'Lot')
+            lot_id = self.parser.find_text(lot_element, "./cbc:ID", namespaces=self.parser.nsmap)
+            lot_info = {
+                "id": lot_id,
+                "techniques": {"electronicAuction": {"url": auction_url}} if auction_url else None,
+                "submissionMethodDetails": submission_url if submission_url else None
+            }
+
+            part_auction_url, part_submission_url = self.fetch_urls_for_lot(lot_element, 'Part')
+            if part_auction_url or part_submission_url:
+                lot_info.update({
+                    "techniques": {"electronicAuction": {"url": part_auction_url}} if part_auction_url else None,
+                    "submissionMethodDetails": part_submission_url if part_submission_url else None
+                })
+
+            self.add_or_update_lot(tender['lots'], lot_info)
+
+        unique_parties = {}
+        for party in self.parties:
+            if not party.get("id"):
+                logging.warning(f"Party without ID found, skipping: {party}")
+                continue
+
+            if party["id"] not in unique_parties:
+                unique_parties[party["id"]] = party
+            else:
+                existing_party = unique_parties[party["id"]]
+                for role in party.get('roles', []):
+                    if role not in existing_party['roles']:
+                        existing_party['roles'].append(role)
+                for key, value in party.items():
+                    if key in ["roles", "id", "name"]:
+                        continue
+                    elif key in existing_party and isinstance(existing_party[key], list):
+                        if key == "beneficialOwners":
+                            bo_ids = {bo["id"] for bo in existing_party[key]}
+                            for bo in value:
+                                if bo["id"] not in bo_ids:
+                                    existing_party[key].append(bo)
+                        else:
+                            existing_party[key].extend(value)
+                    elif key in existing_party and isinstance(existing_party[key], dict):
+                        existing_party[key].update(value)
+                    else:
+                        existing_party[key] = value
+
+        unique_parties = list(unique_parties.values())
+
+        for party in unique_parties:
+            if "beneficialOwners" in party:
+                unique_bos = {bo["id"]: bo for bo in party["beneficialOwners"]}
+                party["beneficialOwners"] = list(unique_bos.values())
+
+        notice_uri = self.parser.find_text(root, ".//cbc:URI", namespaces=self.parser.nsmap)
+
+        release = {
+            "id": self.parser.find_text(root, "./cbc:ID"),
+            "ocid": ocid,
+            "date": dispatch_datetime,
+            "initiationType": "tender",
+            "tag": form_type['tag'],
+            "parties": unique_parties,
+            "language": language,
+            "tender": tender,
+            "relatedProcesses": self.parse_related_processes(root),
+            "awards": self.awards,
+            "contracts": [{"dateSigned": contract_signed_date}] if contract_signed_date else [],
+            "uri": notice_uri,
+            "planning": {
+                "budget": {
+                    "finance": self.budget_finances
+                }
+            } if self.budget_finances else None
+        }
+
+        if "bids" in self.tender:
+            unique_bids = {}
+            for bid in self.tender["bids"]["details"]:
+                if bid["id"] not in unique_bids:
+                    unique_bids[bid["id"]] = bid
+                else:
+                    existing_bid = unique_bids[bid["id"]]
+                    for key, value in bid.items():
+                        if key in existing_bid and isinstance(existing_bid[key], list):
+                            if key == "tenderers":
+                                existing_tenderers = {t["id"] for t in existing_bid["tenderers"]}
+                                for t in value:
+                                    if t["id"] not in existing_tenderers:
+                                        existing_bid["tenderers"].append(t)
+                            else:
+                                existing_bid[key].extend(value)
+                        elif key in existing_bid and isinstance(existing_bid[key], dict):
+                            existing_bid[key].update(value)
+                        else:
+                            existing_bid[key] = value
+            self.tender["bids"]["details"] = list(unique_bids.values())
+            release['bids'] = self.tender["bids"]
+
+        cleaned_release = self.clean_release_structure(release)
+        cleaned_release = self.remove_schema_from_identifier(cleaned_release)
+
+        logging.info('Conversion to OCDS format completed.')
+        return cleaned_release
 
 def convert_ted_to_ocds(xml_file):
     logging.basicConfig(level=logging.DEBUG) 
