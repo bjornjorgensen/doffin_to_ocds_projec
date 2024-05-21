@@ -138,6 +138,42 @@ class TEDtoOCDSConverter:
                         })
                         stat_id += 1
 
+    def fetch_bt31_max_lots_submitted(self, root_element):
+        """
+        Fetches BT-31: The maximum number of lots for which one tenderer can submit tenders
+        and maps to tender.lotDetails.maximumLotsBidPerSupplier.
+        """
+        max_lots_submitted = self.parser.find_text(root_element, ".//cac:TenderingTerms/cac:LotDistribution/cbc:MaximumLotsSubmittedNumeric", namespaces=self.parser.nsmap)
+        if max_lots_submitted:
+            self.tender.setdefault('lotDetails', {})['maximumLotsBidPerSupplier'] = int(max_lots_submitted)
+            logging.info(f"Extracted Maximum Lots Submitted: {max_lots_submitted}")
+        else:
+            logging.warning("Maximum Lots Submitted information not found.")
+
+    def fetch_bt33_max_lots_awarded(self, root_element):
+        """
+        Fetches BT-33: The maximum number of lots for which contract(s) can be awarded to one tenderer
+        and maps to tender.lotDetails.maximumLotsAwardedPerSupplier.
+        """
+        max_lots_awarded = self.parser.find_text(root_element, ".//cac:TenderingTerms/cac:LotDistribution/cbc:MaximumLotsAwardedNumeric", namespaces=self.parser.nsmap)
+        if max_lots_awarded:
+            self.tender.setdefault('lotDetails', {})['maximumLotsAwardedPerSupplier'] = int(max_lots_awarded)
+            logging.info(f"Extracted Maximum Lots Awarded: {max_lots_awarded}")
+        else:
+            logging.warning("Maximum Lots Awarded information not found.")
+
+    def fetch_bt763_lots_all_required(self, root_element):
+        """
+        Fetches BT-763: The tenderer must submit tenders for all lots.
+        and sets tender.lotDetails.maximumLotsBidPerSupplier to float('inf') if value is 'all'.
+        """
+        part_presentation_code = self.parser.find_text(root_element, ".//cac:TenderingProcess/cbc:PartPresentationCode[@listName='tenderlot-presentation']", namespaces=self.parser.nsmap)
+        if part_presentation_code == 'all':
+            self.tender.setdefault('lotDetails', {})['maximumLotsBidPerSupplier'] = float('inf')
+            logging.info("Set Maximum Lots Bid Per Supplier to all lots (infinity).")
+        else:
+            logging.warning("Part Presentation Code indicating all lots not found.")
+
     def fetch_bt3202_to_ocds(self, root_element):
         # Ensure the 'bids' dictionary and 'details' list are initialized
         if 'bids' not in self.tender:
@@ -2219,7 +2255,10 @@ class TEDtoOCDSConverter:
         self.fetch_bt47_participants(root)
         self.fetch_bt710_bt711_bid_statistics(root)
         self.fetch_bt712_complaints_statistics(root)
-        language = self.fetch_notice_language(root)  # Fetch the notice language
+        self.fetch_bt31_max_lots_submitted(root) 
+        self.fetch_bt33_max_lots_awarded(root)  
+        self.fetch_bt763_lots_all_required(root)  
+        language = self.fetch_notice_language(root)
 
         activities = self.parse_activity_authority(root)
         for activity in activities:
@@ -2351,7 +2390,7 @@ class TEDtoOCDSConverter:
             "relatedProcesses": self.parse_related_processes(root),
             "awards": self.awards,
             "contracts": [{"dateSigned": contract_signed_date}] if contract_signed_date else [],
-            "uri": notice_uri  # Add the notice URI here
+            "uri": notice_uri 
         }
 
         if "bids" in self.tender:
