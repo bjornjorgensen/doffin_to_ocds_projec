@@ -1228,7 +1228,7 @@ class TEDtoOCDSConverter:
         }
         organizations.append(new_organization)
         return new_organization
-
+    
     @staticmethod
     def update_organization(organization, new_info):
         if 'roles' in new_info and new_info['roles']:
@@ -2341,6 +2341,281 @@ class TEDtoOCDSConverter:
            return {"amount": amount, "currency": currency}
        return None
 
+    def fetch_bt13713_lotresult(self, root_element):
+        lot_results = root_element.findall(".//efac:NoticeResult/efac:LotResult", namespaces=self.parser.nsmap)
+        for lot_result in lot_results:
+            result_id = self.parser.find_text(lot_result, "./cbc:ID", namespaces=self.parser.nsmap)
+            if result_id:
+                lot_id = self.parser.find_text(lot_result, "./efac:TenderLot/cbc:ID", namespaces=self.parser.nsmap)
+                self.add_or_update_award(result_id)
+                self.add_or_update_award_related_lots(result_id, [lot_id])
+
+    def add_or_update_award_related_lots(self, award_id, related_lots):
+        award = next((a for a in self.awards if a['id'] == award_id), None)
+        if award:
+            for lot_id in related_lots:
+                if lot_id not in award['relatedLots']:
+                    award['relatedLots'].append(lot_id)
+        else:
+            self.awards.append({"id": award_id, "relatedLots": related_lots})
+
+    def add_or_update_award(self, award_id):
+        award = next((a for a in self.awards if a['id'] == award_id), None)
+        if not award:
+            self.awards.append({"id": award_id, "relatedLots": []})
+
+    def fetch_bt142_winner_chosen(self, root_element):
+        lot_results = root_element.findall(".//efac:NoticeResult/efac:LotResult", namespaces=self.parser.nsmap)
+        for lot_result in lot_results:
+            result_id = self.parser.find_text(lot_result, "./cbc:ID", namespaces=self.parser.nsmap)
+            if result_id:
+                tender_result_code = self.parser.find_text(lot_result, "./cbc:TenderResultCode", namespaces=self.parser.nsmap)
+                if tender_result_code == 'selec-w':
+                    self.update_award_status(result_id, 'active', 'At least one winner was chosen.')
+                elif tender_result_code == 'open-nw':
+                    self.update_lot_status(result_id, 'active')
+                elif tender_result_code == 'clos-nw':
+                    self.update_award_status(result_id, 'unsuccessful', 'No winner chosen.')
+
+    def update_award_status(self, award_id, status, status_details=None):
+        award = next((a for a in self.awards if a['id'] == award_id), None)
+        if award:
+            award['status'] = status
+            if status_details:
+                award['statusDetails'] = status_details
+
+    def update_lot_status(self, lot_id, status):
+        for lot in self.tender.get('lots', []):
+            if lot['id'] == lot_id:
+                lot['status'] = status
+                break                    
+
+    def fetch_bt144_not_awarded_reason(self, root_element):
+        lot_results = root_element.findall(".//efac:NoticeResult/efac:LotResult", namespaces=self.parser.nsmap)
+        for lot_result in lot_results:
+            result_id = self.parser.find_text(lot_result, "./cbc:ID", namespaces=self.parser.nsmap)
+            if result_id:
+                decision_reason_code = self.parser.find_text(lot_result, "./efac:DecisionReason/efbc:DecisionReasonCode", namespaces=self.parser.nsmap)
+                if decision_reason_code:
+                    self.update_award_status(result_id, 'unsuccessful', self.get_non_award_reason(decision_reason_code))
+
+    def get_non_award_reason(self, code):
+        reasons = {
+            "no-rece": "No tenders, requests to participate or projects were received",
+            # Add other mappings as needed
+        }
+        return reasons.get(code, "Unknown reason")
+    
+    def fetch_bt1451_winner_decision_date(self, root_element):
+        settled_contracts = root_element.findall(".//efac:NoticeResult/efac:SettledContract", namespaces=self.parser.nsmap)
+        for contract in settled_contracts:
+            contract_id = self.parser.find_text(contract, "./cbc:ID", namespaces=self.parser.nsmap)
+            award_date = self.parser.find_text(contract, "./cbc:AwardDate", namespaces=self.parser.nsmap)
+            if contract_id and award_date:
+                lot_results = contract.xpath("ancestor::efac:NoticeResult/efac:LotResult[efac:SettledContract/cbc:ID='" + contract_id + "']", namespaces=self.parser.nsmap)
+                for lot_result in lot_results:
+                    result_id = self.parser.find_text(lot_result, "./cbc:ID", namespaces=self.parser.nsmap)
+                    if result_id:
+                        self.update_award_date(result_id, award_date)
+
+    def update_award_date(self, award_id, date):
+        award = next((a for a in self.awards if a['id'] == award_id), None)
+        if award:
+            existing_date = award.get('date')
+            new_date = parse_iso_date(date).isoformat() if date else None
+            if not existing_date or (new_date and new_date < existing_date):
+                award['date'] = new_date
+
+    def fetch_bt163_concession_value_description(self, root_element):
+        lot_tenders = root_element.findall(".//efac:NoticeResult/efac:LotTender", namespaces=self.parser.nsmap)
+        for lot_tender in lot_tenders:
+            tender_id = self.parser.find_text(lot_tender, "./cbc:ID", namespaces=self.parser.nsmap)
+            value_description = self.parser.find_text(lot_tender, "./efac:ConcessionRevenue/efbc:ValueDescription", namespaces=self.parser.nsmap)
+            if tender_id and value_description:
+                lot_result_id = self.parser.find_text(lot_tender.getparent(), "./efac:LotResult/cbc:ID", namespaces=self.parser.nsmap)
+                if lot_result_id:
+                    self.add_or_update_concession_value_description(lot_result_id, value_description)
+
+    def add_or_update_concession_value_description(self, award_id, description):
+        award = next((a for a in self.awards if a['id'] == award_id), None)
+        if award:
+            award['valueCalculationMethod'] = description
+
+    def fetch_bt3202_contract_tender_reference(self, root_element):
+        settled_contracts = root_element.findall(".//efac:NoticeResult/efac:SettledContract", namespaces=self.parser.nsmap)
+        for contract in settled_contracts:
+            tender_id = self.parser.find_text(contract, "./efac:LotTender/cbc:ID", namespaces=self.parser.nsmap)
+            if tender_id:
+                contract_id = self.parser.find_text(contract, "./cbc:ID", namespaces=self.parser.nsmap)
+                if contract_id:
+                    self.add_or_update_contract_related_bids(contract_id, tender_id)
+
+            tender_party_id = self.parser.find_text(contract, "./efac:TenderingParty/cbc:ID", namespaces=self.parser.nsmap)
+            if tender_party_id and contract_id:  # Ensure both IDs are present
+                tenderers = root_element.findall(f".//efac:TenderingParty[cbc:ID='{tender_party_id}']//efac:Tenderer", namespaces=self.parser.nsmap)
+                for tenderer in tenderers:
+                    tenderer_id = self.parser.find_text(tenderer, "./cbc:ID", namespaces=self.parser.nsmap)
+                    if tenderer_id:
+                        self.update_party_roles(tenderer_id, ["supplier"])
+                        self.add_supplier_to_award(contract_id, tenderer_id)
+
+    def add_or_update_contract_related_bids(self, contract_id, tender_id):
+        contract = next((c for c in self.get_contracts() if c['id'] == contract_id), None)
+        if not contract:
+            contract = {"id": contract_id, "relatedBids": [tender_id]}
+            self.get_contracts().append(contract)
+        else:
+            if tender_id not in contract.get('relatedBids', []):
+                contract.setdefault('relatedBids', []).append(tender_id)
+
+    def add_supplier_to_award(self, award_id, supplier_id):
+        award = next((a for a in self.awards if a['id'] == award_id), None)
+        if award:
+            existing_supplier_ids = [s['id'] for s in award.get("suppliers", [])]
+            if supplier_id not in existing_supplier_ids:
+                award.setdefault("suppliers", []).append({"id": supplier_id})       
+
+    def fetch_bt660_framework_re_estimated_value(self, root_element):
+        lot_results = root_element.findall(".//efac:NoticeResult/efac:LotResult", namespaces=self.parser.nsmap)
+        for lot_result in lot_results:
+            result_id = self.parser.find_text(lot_result, "./cbc:ID", namespaces=self.parser.nsmap)
+            if result_id:
+                reestimated_value_element = lot_result.find("./efac:FrameworkAgreementValues/efbc:ReestimatedValueAmount", namespaces=self.parser.nsmap)
+                if reestimated_value_element is not None:
+                    reestimated_value = float(reestimated_value_element.text) if reestimated_value_element.text else None
+                    currency_id = reestimated_value_element.get('currencyID')
+                    if reestimated_value and currency_id:
+                        self.update_award_estimated_value(result_id, reestimated_value, currency_id)
+
+    def update_award_estimated_value(self, award_id, amount, currency):
+        award = next((a for a in self.awards if a['id'] == award_id), None)
+        if award:
+            award['estimatedValue'] = {"amount": amount, "currency": currency}  
+
+    def fetch_bt709_framework_maximum_value(self, root_element):
+        lot_results = root_element.findall(".//efac:NoticeResult/efac:LotResult", namespaces=self.parser.nsmap)
+        for lot_result in lot_results:
+            result_id = self.parser.find_text(lot_result, "./cbc:ID", namespaces=self.parser.nsmap)
+            if result_id:
+                maximum_value_element = lot_result.find("./efac:FrameworkAgreementValues/cbc:MaximumValueAmount", namespaces=self.parser.nsmap)
+                if maximum_value_element is not None:
+                    maximum_value = float(maximum_value_element.text) if maximum_value_element.text else None
+                    currency_id = maximum_value_element.get('currencyID')
+                    if maximum_value and currency_id:
+                        self.update_award_maximum_value(result_id, maximum_value, currency_id)
+
+    def update_award_maximum_value(self, award_id, amount, currency):
+        award = next((a for a in self.awards if a['id'] == award_id), None)
+        if award:
+            award['maximumValue'] = {"amount": amount, "currency": currency}                  
+
+    def fetch_bt720_tender_value(self, root_element):
+        lot_tenders = root_element.findall(".//efac:NoticeResult/efac:LotTender", namespaces=self.parser.nsmap)
+        for lot_tender in lot_tenders:
+            tender_id = self.parser.find_text(lot_tender, "./cbc:ID", namespaces=self.parser.nsmap)
+            payable_amount_element = lot_tender.find("./cac:LegalMonetaryTotal/cbc:PayableAmount", namespaces=self.parser.nsmap)
+            if tender_id and payable_amount_element is not None:
+                payable_amount = float(payable_amount_element.text) if payable_amount_element.text else None
+                currency_id = payable_amount_element.get('currencyID')
+                if payable_amount and currency_id:
+                    result_id = self.parser.find_text(lot_tender.getparent(), "./efac:LotResult/cbc:ID", namespaces=self.parser.nsmap)
+                    if result_id:
+                        self.update_bid_value(tender_id, payable_amount, currency_id)
+                        self.update_award_value(result_id, payable_amount, currency_id)
+
+    def update_bid_value(self, bid_id, amount, currency):
+        bid = next((b for b in self.tender["bids"]["details"] if b["id"] == bid_id), None)
+        if bid:
+            bid["value"] = {"amount": amount, "currency": currency}
+
+    def update_award_value(self, award_id, amount, currency):
+        award = next((a for a in self.awards if a['id'] == award_id), None)
+        if award:
+            award["value"] = {"amount": amount, "currency": currency}
+
+    def fetch_bt735_cvd_contract_type(self, root_element):
+        lot_results = root_element.findall(".//efac:NoticeResult/efac:LotResult", namespaces=self.parser.nsmap)
+        for lot_result in lot_results:
+            result_id = self.parser.find_text(lot_result, "./cbc:ID", namespaces=self.parser.nsmap)
+            if result_id:
+                cvd_contract_type = self.parser.find_text(lot_result, "./efac:StrategicProcurement/efac:StrategicProcurementInformation/efbc:ProcurementCategoryCode", namespaces=self.parser.nsmap)
+                if cvd_contract_type:
+                    self.add_cv_contract_type(result_id, cvd_contract_type)
+
+    def add_cv_contract_type(self, award_id, cvd_contract_type):
+        item_id = 1
+        award = next((a for a in self.awards if a['id'] == award_id), None)
+        if award:
+            classification = {
+                "scheme": "eu-cvd-contract-type",
+                "id": cvd_contract_type,
+                "description": self.get_contract_type_description(cvd_contract_type)
+            }
+            item = {
+                "id": str(item_id),
+                "additionalClassifications": [classification]
+            }
+            award.setdefault("items", []).append(item)
+            item_id += 1
+
+    def get_contract_type_description(self, code):
+        descriptions = {
+            "oth-serv-contr": "other service contract",
+            # Add other mappings as required
+        }
+        return descriptions.get(code, "Unknown contract type")  
+
+    def update_party_roles(self, org_id, roles):
+        organization = self.get_or_create_organization(self.parties, org_id)
+        for role in roles:
+            if role not in organization['roles']:
+                organization['roles'].append(role)
+
+    def fetch_opt_300_contract_signatory(self, root_element):
+        signatory_parties = root_element.findall(".//efac:NoticeResult/efac:SettledContract/cac:SignatoryParty", namespaces=self.parser.nsmap)
+        for signatory_party in signatory_parties:
+            signatory_id = self.parser.find_text(signatory_party, "./cac:PartyIdentification/cbc:ID", namespaces=self.parser.nsmap)
+            if signatory_id:
+                org = self.get_or_create_organization(self.parties, signatory_id)
+                self.update_party_roles(signatory_id, ["buyer"])
+                org_name = self.parser.find_text(root_element, f".//efac:Organizations/efac:Organization[efac:Company/cac:PartyIdentification/cbc:ID='{signatory_id}']/efac:Company/cac:PartyName/cbc:Name", self.parser.nsmap)
+                if org_name:
+                    org["name"] = org_name
+                contract_id = self.parser.find_text(signatory_party, './../../cbc:ID', namespaces=self.parser.nsmap)  # Current contract ID
+                for award in self.awards:
+                    if contract_id in award.get("relatedContracts", []):
+                        award.setdefault("buyers", []).append({"id": signatory_id})     
+
+    def fetch_opt_320_lotresult_tender_reference(self, root_element):
+        lot_results = root_element.findall(".//efac:NoticeResult/efac:LotResult", namespaces=self.parser.nsmap)
+        for lot_result in lot_results:
+            lot_tender_ids = lot_result.findall("./efac:LotTender/cbc:ID", namespaces=self.parser.nsmap)
+            if lot_tender_ids:
+                result_id = self.parser.find_text(lot_result, "./cbc:ID", namespaces=self.parser.nsmap)
+                for tender_id in lot_tender_ids:
+                    if result_id and tender_id:
+                        self.add_tender_id_to_award(result_id, tender_id.text)
+
+    def add_tender_id_to_award(self, award_id, tender_id):
+        award = next((a for a in self.awards if a['id'] == award_id), None)
+        if award:
+            if 'relatedBids' not in award:
+                award['relatedBids'] = []
+            if tender_id not in award['relatedBids']:
+                award['relatedBids'].append(tender_id) 
+
+    def fetch_opt_322_lotresult_technical_identifier(self, root_element):
+        lot_results = root_element.findall(".//efac:NoticeResult/efac:LotResult", namespaces=self.parser.nsmap)
+        for lot_result in lot_results:
+            result_id = self.parser.find_text(lot_result, "./cbc:ID", namespaces=self.parser.nsmap)
+            if result_id:
+                self.add_or_update_award(result_id)
+
+    def add_or_update_award(self, award_id):
+        award = next((a for a in self.awards if a['id'] == award_id), None)
+        if not award:
+            self.awards.append({"id": award_id, "relatedLots": []})           
+
     def convert_tender_to_ocds(self):
         root = self.parser.root
         ocid = "ocds-" + str(uuid.uuid4())
@@ -2372,13 +2647,26 @@ class TEDtoOCDSConverter:
         self.fetch_bt47_participants(root)
         self.fetch_bt710_bt711_bid_statistics(root)
         self.fetch_bt712_complaints_statistics(root)
-        self.fetch_bt31_max_lots_submitted(root) 
-        self.fetch_bt33_max_lots_awarded(root)  
+        self.fetch_bt31_max_lots_submitted(root)
+        self.fetch_bt33_max_lots_awarded(root)
         self.fetch_bt763_lots_all_required(root)
-        self.fetch_bt5010_lot_financing(root)  
-        self.fetch_bt5011_contract_financing(root) 
-        self.fetch_bt60_lot_funding(root)  
-        self.fetch_opt_301_lotresult_financing(root)  
+        self.fetch_bt5010_lot_financing(root)
+        self.fetch_bt5011_contract_financing(root)
+        self.fetch_bt60_lot_funding(root)
+        self.fetch_opt_301_lotresult_financing(root)
+        self.fetch_bt13713_lotresult(root)
+        self.fetch_bt142_winner_chosen(root)
+        self.fetch_bt144_not_awarded_reason(root)
+        self.fetch_bt1451_winner_decision_date(root)
+        self.fetch_bt163_concession_value_description(root)
+        self.fetch_bt3202_contract_tender_reference(root)
+        self.fetch_bt660_framework_re_estimated_value(root)
+        self.fetch_bt709_framework_maximum_value(root)
+        self.fetch_bt720_tender_value(root)
+        self.fetch_bt735_cvd_contract_type(root)
+        self.fetch_opt_320_lotresult_tender_reference(root)
+        self.fetch_opt_322_lotresult_technical_identifier(root)
+
         language = self.fetch_notice_language(root)
 
         activities = self.parse_activity_authority(root)
@@ -2424,8 +2712,8 @@ class TEDtoOCDSConverter:
             "value": tender_estimated_value,
             "procedureFeatures": procedure_features if procedure_features else None,
             "submissionMethod": ["electronicSubmission"],
-            "documents": self.tender.get("documents", []),  
-            "items": classifications 
+            "documents": self.tender.get("documents", []),
+            "items": classifications
         }
 
         # BT-23-Part & BT-23-Procedure: Main Nature
