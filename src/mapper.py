@@ -1033,14 +1033,14 @@ class TEDtoOCDSConverter:
 
                 contact_point = self.fetch_bt502_contact_point(org_element)
                 logging.debug(f"Extracted contact point: {contact_point}")
-                
+
                 address = {
                     'locality': self.parser.find_text(org_element, './efac:Company/cac:PostalAddress/cbc:CityName', namespaces=self.parser.nsmap),
                     'postalCode': self.parser.find_text(org_element, './efac:Company/cac:PostalAddress/cbc:PostalZone', namespaces=self.parser.nsmap),
                     'country': self.convert_language_code(self.parser.find_text(org_element, './efac:Company/cac:PostalAddress/cac:Country/cbc:IdentificationCode', namespaces=self.parser.nsmap), code_type='country'),
                     'region': self.parser.find_text(org_element, './efac:Company/cac:PostalAddress/cbc:CountrySubentityCode', namespaces=self.parser.nsmap)
                 }
-                
+
                 identifier = {
                     'id': self.parser.find_text(org_element, './efac:Company/cac:PartyLegalEntity/cbc:CompanyID', namespaces=self.parser.nsmap),
                     'scheme': 'GB-COH'
@@ -1053,37 +1053,34 @@ class TEDtoOCDSConverter:
                     'identifier': identifier,
                     'contactPoint': contact_point
                 }
-                
+
                 self.update_organization(organization, updated_info)
                 logging.debug(f"Updated organization info: {organization}")
 
-        for ubo_element in element.findall(".//efac:UltimateBeneficialOwner", namespaces=self.parser.nsmap):
-            ubo_id = self.parser.find_text(ubo_element, "./cbc:ID", namespaces=self.parser.nsmap)
-            if ubo_id:
-                logging.debug(f"Processing UBO with ID: {ubo_id}")
-                org_id = self.parser.find_text(ubo_element.getparent(), "./efac:Company/cac:PartyIdentification/cbc:ID", namespaces=self.parser.nsmap)
-                organization = self.get_or_create_organization(organizations, org_id)
-                
-                first_name = self.parser.find_text(ubo_element, './cbc:FirstName', namespaces=self.parser.nsmap) or ""
-                family_name = self.parser.find_text(ubo_element, './cbc:FamilyName', namespaces=self.parser.nsmap) or ""
-                full_name = f"{first_name} {family_name}".strip() or "Unknown Beneficial Owner"
+            ubo_elements = org_element.findall(".//efac:UltimateBeneficialOwner", namespaces=self.parser.nsmap)
+            for ubo_element in ubo_elements:
+                ubo_id = self.parser.find_text(ubo_element, "./cbc:ID", namespaces=self.parser.nsmap)
+                if ubo_id:
+                    logging.debug(f"Processing UBO with ID: {ubo_id}")
+                    first_name = self.parser.find_text(ubo_element, './cbc:FirstName', namespaces=self.parser.nsmap) or ""
+                    family_name = self.parser.find_text(ubo_element, './cbc:FamilyName', namespaces=self.parser.nsmap) or ""
+                    full_name = f"{first_name} {family_name}".strip() or "Unknown Beneficial Owner"
 
-                # Fetch and process UBO address country sub-division code (NUTS)
-                ubo_address_element = ubo_element.find('./cac:ResidenceAddress', namespaces=self.parser.nsmap)
-                ubo_address = self.process_ubo_address(ubo_address_element)
-
-                ubo_info = {
-                    "id": ubo_id,
-                    "name": full_name,
-                    "address": ubo_address,
-                    "nationality": self.convert_language_code(self.parser.find_text(ubo_element, "./efac:Nationality/cbc:NationalityID", namespaces=self.parser.nsmap), code_type='country')
-                }
-                phone_info = self.fetch_bt503_ubo_contact(ubo_element)
-                if phone_info:
-                    ubo_info.update(phone_info)
-
-                organization.setdefault("beneficialOwners", []).append(ubo_info)
-                logging.debug(f"Updated organization with UBO: {organization}")
+                    # Fetch and process nationality to avoid NoneType error
+                    raw_nationality_code = self.parser.find_text(ubo_element, "./efac:Nationality/cbc:NationalityID", namespaces=self.parser.nsmap)
+                    processed_nationality_code = self.convert_language_code(raw_nationality_code, code_type='country') if raw_nationality_code else None
+                    
+                    ubo_info = {
+                        "id": ubo_id,
+                        "name": full_name,
+                        "nationality": processed_nationality_code
+                    }
+                    phone_info = self.fetch_bt503_ubo_contact(ubo_element)
+                    if phone_info:
+                        ubo_info.update(phone_info)
+                    
+                    organization.setdefault("beneficialOwners", []).append(ubo_info)
+                    logging.debug(f"Updated organization with UBO: {organization}")
 
         return organizations
     
@@ -1179,6 +1176,8 @@ class TEDtoOCDSConverter:
                         party.setdefault('contactPoint', {}).update(value)
                     elif key == 'details':
                         party.setdefault('details', {}).update(value)
+                    elif key == 'address' and 'address' in party:
+                        party['address'].update(value)
                     else:
                         party[key] = value
                 return
@@ -2498,10 +2497,10 @@ class TEDtoOCDSConverter:
     
     def clean_release_structure(self, data):
         if isinstance(data, dict):
-            cleaned = {k: self.clean_release_structure(v) for k, v in data.items() if v is not None}
+            cleaned = {k: self.clean_release_structure(v) for k, v in data.items() if v is not None and v != {} and v != []}
             return {k: v for k, v in cleaned.items() if v}
         elif isinstance(data, list):
-            return [self.clean_release_structure(v) for v in data if v is not None]
+            return [self.clean_release_structure(v) for v in data if v is not None and v != {} and v != []]
         return data
     
     def parse_related_processes(self, root):
@@ -3234,7 +3233,6 @@ class TEDtoOCDSConverter:
             self.handle_bt14_and_bt707(root)
             self.fetch_opp_050_buyers_group_lead(root)
             self.fetch_opt_300_contract_signatory(root)
-            # Call the new method
             self.fetch_bt773_subcontracting(root)
         except Exception as e:
             logging.error(f"Error fetching data: {e}")
@@ -3277,7 +3275,7 @@ class TEDtoOCDSConverter:
             "legalBasis": legal_basis,
             "lots": lots,
             "lotGroups": [] if aggregated_part_value else None,
-            "awardCriteria": {
+            "awardCriteria" :{
                 "criteria": [criterion for lot in lots for criterion in lot.get('awardCriteria', {}).get('criteria', [])]
             } if award_criteria_found else None,
             "procurementMethod": procedure_type["method"] if procedure_type else None,
@@ -3285,10 +3283,12 @@ class TEDtoOCDSConverter:
             "procurementMethodRationale": procurement_method_rationale,
             "procurementMethodRationaleClassifications": procurement_method_rationale_classifications,
             "value": tender_estimated_value,
-            "procedureFeatures": procedure_features,
+            "procedureFeatures": procedure_features if procedure_features else None,
             "submissionMethod": ["electronicSubmission"],
             "documents": self.tender.get("documents", []),
-            "items": classifications.get("items", [])
+            "items": classifications.get("items", []),
+            # Add activities under the 'classification' field
+            "classification": {"activities": activities} if activities else None
         }
 
         unique_parties = {}
@@ -3321,6 +3321,10 @@ class TEDtoOCDSConverter:
         unique_parties = list(unique_parties.values())
 
         for party in unique_parties:
+            roles = party.get('roles', [])
+            if 'buyer' in roles:
+                party.setdefault('details', {}).setdefault('classifications', []).extend(legal_types)
+
             if "beneficialOwners" in party:
                 unique_bos = {bo["id"]: bo for bo in party["beneficialOwners"]}
                 party["beneficialOwners"] = list(unique_bos.values())
@@ -3374,6 +3378,7 @@ class TEDtoOCDSConverter:
 
         logging.info('Conversion to OCDS format completed.')
         return cleaned_release
+
 
 def main(xml_file):
     logging.basicConfig(level=logging.DEBUG)
