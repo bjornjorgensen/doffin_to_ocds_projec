@@ -75,10 +75,6 @@ class TEDtoOCDSConverter:
         logging.info('TEDtoOCDSConverter initialized with mapping.')
 
     def fetch_bt710_bt711_bid_statistics(self, root_element):
-        """
-        Fetches the LotResult values for BT-710 (Lowest Bid) and BT-711 (Highest Bid)
-        and includes them in the bids statistics.
-        """
         notice_results = root_element.xpath(".//efac:NoticeResult", namespaces=self.parser.nsmap)
         stat_id = 1
 
@@ -110,6 +106,94 @@ class TEDtoOCDSConverter:
                         "relatedLot": lot_id
                     })
                     stat_id += 1
+
+    def fetch_bt09_cross_border_law(self, root_element):
+        cross_border_docs = root_element.xpath(".//cac:TenderingTerms/cac:ProcurementLegislationDocumentReference[cbc:ID='CrossBorderLaw']", namespaces=self.parser.nsmap)        
+        for doc in cross_border_docs:
+            law_description = self.parser.find_text(doc, "./cbc:DocumentDescription", namespaces=self.parser.nsmap)
+            if law_description:
+                self.tender["crossBorderLaw"] = law_description
+
+    def fetch_bt111_lot_buyer_categories(self, root_element):
+        lots = root_element.xpath(".//cac:ProcurementProjectLot[cbc:ID/@schemeName='Lot']", namespaces=self.parser.nsmap)
+        for lot in lots:
+            lot_id = self.parser.find_text(lot, "./cbc:ID", namespaces=self.parser.nsmap)
+            subsequent_req = lot.xpath(".//cac:FrameworkAgreement/cac:SubsequentProcessTenderRequirement[cbc:Name='buyer-categories']/cbc:Description", namespaces=self.parser.nsmap)
+            description = subsequent_req[0].text if subsequent_req else None
+            if description:
+                for lot_info in self.tender.get("lots", []):
+                    if lot_info["id"] == lot_id:
+                        lot_info.setdefault("techniques", {}).setdefault("frameworkAgreement", {})["buyerCategories"] = description
+
+    def fetch_bt766_dynamic_purchasing_system_lot(self, root_element):
+        lots = root_element.xpath(".//cac:ProcurementProjectLot[cbc:ID/@schemeName='Lot']", namespaces=self.parser.nsmap)
+        for lot in lots:
+            lot_id = self.parser.find_text(lot, "./cbc:ID", namespaces=self.parser.nsmap)
+            dps_code = self.parser.find_text(lot, "./cac:TenderingProcess/cac:ContractingSystem/cbc:ContractingSystemTypeCode[@listName='dps-usage']", namespaces=self.parser.nsmap)
+            if dps_code and dps_code.lower() != "none":
+                lot_info = {
+                    "id": lot_id,
+                    "techniques": {
+                        "hasDynamicPurchasingSystem": True,
+                        "dynamicPurchasingSystem": {
+                            "type": self.map_dps_code(dps_code)
+                        }
+                    }
+                }
+                self.add_or_update_lot(self.tender["lots"], lot_info)
+
+    def map_dps_code(self, code):
+        mapping = {
+            "dps-nlist": "closed",
+            "dps-openall": "open",
+            # Add other mappings as needed
+        }
+        return mapping.get(code, code)
+    
+    def fetch_bt766_dynamic_purchasing_system_part(self, root_element):
+        parts = root_element.xpath(".//cac:ProcurementProjectLot[cbc:ID/@schemeName='Part']", namespaces=self.parser.nsmap)
+        for part in parts:
+            dps_code = self.parser.find_text(part, "./cac:TenderingProcess/cac:ContractingSystem/cbc:ContractingSystemTypeCode[@listName='dps-usage']", namespaces=self.parser.nsmap)
+            if dps_code and dps_code.lower() != "none":
+                self.tender.setdefault("techniques", {}).update({
+                    "hasDynamicPurchasingSystem": True,
+                    "dynamicPurchasingSystem": {
+                        "type": self.map_dps_code(dps_code)
+                    }
+                })
+
+    def fetch_opp_050_buyers_group_lead(self, root_element):
+        orgs = root_element.xpath(".//efext:EformsExtension/efac:Organizations/efac:Organization", namespaces=self.parser.nsmap)
+        for org in orgs:
+            is_group_lead = self.parser.find_text(org, "./efbc:GroupLeadIndicator", namespaces=self.parser.nsmap)
+            if is_group_lead == "true":
+                org_id = self.parser.find_text(org, "./efac:Company/cac:PartyIdentification/cbc:ID", namespaces=self.parser.nsmap)
+                if org_id:
+                    org_info = {
+                        "id": org_id,
+                        "roles": ["leadBuyer"]
+                    }
+                    self.add_or_update_party(self.parties, org_info)
+
+    def fetch_opt_300_contract_signatory(self, root_element):
+        signatories = root_element.xpath(".//efext:EformsExtension/efac:NoticeResult/efac:SettledContract/cac:SignatoryParty/cac:PartyIdentification/cbc:ID", namespaces=self.parser.nsmap)
+        for signatory in signatories:
+            signatory_id = signatory.text
+            if signatory_id:
+                contract_id = signatory.xpath("ancestor::efext:EformsExtension/efac:NoticeResult/efac:SettledContract/cbc:ID", namespaces=self.parser.nsmap)[0].text
+                self.add_or_update_party(self.parties, {
+                    "id": signatory_id,
+                    "roles": ["buyer"],
+                })
+                org_name = self.parser.find_text(root_element, f".//efac:Organization/efac:Company[cac:PartyIdentification/cbc:ID='{signatory_id}']/cac:PartyName/cbc:Name", namespaces=self.parser.nsmap)
+                if org_name:
+                    self.add_or_update_party(self.parties, {
+                        "id": signatory_id,
+                        "name": org_name,
+                    })
+                for award in self.awards:
+                    if award["id"] == contract_id:
+                        award.setdefault("buyers", []).append({"id": signatory_id})                                                            
 
     def fetch_bt712_complaints_statistics(self, root_element):
         """
@@ -2728,30 +2812,17 @@ class TEDtoOCDSConverter:
         tender_title = self.parser.find_text(root, ".//cac:ProcurementProject/cbc:Name", namespaces=self.parser.nsmap)
 
         form_type = self.get_form_type(root)
-        
-        # Organize parties and parse root
-        self.parties = self.parse_organizations(root)
-        self.fetch_bt3202_to_ocds(root)
-        self.fetch_bt506_emails(root)
-        self.fetch_bt505_urls(root)
-        self.handle_bt14_and_bt707(root)
-        self.fetch_opt_301_lot_mediator(root)
-        self.fetch_opt_301_part_review_org(root)
-        self.fetch_opt_301_lot_review_org(root)
-        self.fetch_bt508_buyer_profile(root)
-        self.fetch_bt610_activity_entity(root)
-        self.fetch_bt740_contracting_entity(root)
-        self.fetch_opt_300_signatory_reference(root)
-        self.fetch_opt_300_buyer_technical_reference(root)
-        self.fetch_opt_301_tenderer_maincont(root)
-        self.fetch_opt_310_tender(root)
 
-        self.fetch_opt_300_contract_signatory(root)
-        self.fetch_opt_300_procedure_service_provider(root)
-        self.fetch_bt500_organization_names(root)
-        self.fetch_bt47_participants(root)
+        self.parties = self.parse_organizations(root)
+
+        # Ensure bids and details are initialized
+        if "bids" not in self.tender or "details" not in self.tender["bids"]:
+            self.tender.setdefault("bids", {}).setdefault("details", [])
+
+        # Existing fetch calls
         self.fetch_bt710_bt711_bid_statistics(root)
         self.fetch_bt712_complaints_statistics(root)
+        self.handle_bt14_and_bt707(root)
         self.fetch_bt31_max_lots_submitted(root)
         self.fetch_bt33_max_lots_awarded(root)
         self.fetch_bt763_lots_all_required(root)
@@ -2767,34 +2838,32 @@ class TEDtoOCDSConverter:
         self.fetch_bt3202_contract_tender_reference(root)
         self.fetch_bt660_framework_re_estimated_value(root)
         self.fetch_bt709_framework_maximum_value(root)
-        self.fetch_bt720_tender_value(root)
+        self.fetch_bt720_tender_value(root)  # This method should now work correctly
         self.fetch_bt735_cvd_contract_type(root)
         self.fetch_opt_320_lotresult_tender_reference(root)
         self.fetch_opt_322_lotresult_technical_identifier(root)
+        self.fetch_bt502_contact_point(root)
+        self.fetch_opt_030_service_type(root)
 
+        # New fetch methods for additional mappings
+        self.fetch_bt09_cross_border_law(root)
+        self.fetch_bt111_lot_buyer_categories(root)
+        self.fetch_bt766_dynamic_purchasing_system_lot(root)
+        self.fetch_bt766_dynamic_purchasing_system_part(root)
+        self.fetch_opp_050_buyers_group_lead(root)
+        self.fetch_opt_300_contract_signatory(root)
+
+        # Additional existing methods
         language = self.fetch_notice_language(root)
-
         activities = self.parse_activity_authority(root)
-        for activity in activities:
-            for party in self.parties:
-                if "buyer" in party.get("roles", []):
-                    party.setdefault("details", {}).setdefault("classifications", []).append(activity)
-
         legal_types = self.parse_buyer_legal_type(root)
-        for legal_type in legal_types:
-            for party in self.parties:
-                if "buyer" in party.get("roles", []):
-                    party.setdefault("details", {}).setdefault("classifications", []).append(legal_type)
-
         lots, aggregated_part_value, award_criteria_found = self.parse_lots(root)
         legal_basis = self.get_legal_basis(root)
         additional_info = self.fetch_bt300_additional_info(root)
         tender_estimated_value = self.fetch_tender_estimated_value(root)
-
         procedure_type = self.parse_procedure_type(root)
         procurement_method_rationale, procurement_method_rationale_classifications = self.parse_direct_award_justification(root)
         procedure_features = self.parse_procedure_features(root)
-
         classifications = self.parse_classifications(root)
 
         self.handle_bidding_documents(root)
@@ -2855,6 +2924,7 @@ class TEDtoOCDSConverter:
             self.add_or_update_lot(tender['lots'], lot_info)
 
         unique_parties = {}
+
         for party in self.parties:
             if not party.get("id"):
                 logging.warning(f"Party without ID found, skipping: {party}")
