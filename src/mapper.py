@@ -1064,7 +1064,7 @@ class TEDtoOCDSConverter:
                     logging.debug(f"Processing UBO with ID: {ubo_id}")
                     first_name = self.parser.find_text(ubo_element, './cbc:FirstName', namespaces=self.parser.nsmap) or ""
                     family_name = self.parser.find_text(ubo_element, './cbc:FamilyName', namespaces=self.parser.nsmap) or ""
-                    full_name = f"{first_name} {family_name}".strip() or "Unknown Beneficial Owner"
+                    full_name = f"{first_name} {family_name}".strip()
 
                     # Fetch and process nationality to avoid NoneType error
                     raw_nationality_code = self.parser.find_text(ubo_element, "./efac:Nationality/cbc:NationalityID", namespaces=self.parser.nsmap)
@@ -1377,7 +1377,7 @@ class TEDtoOCDSConverter:
                 
                 first_name = self.parser.find_text(ubo_element, './cbc:FirstName', namespaces=self.parser.nsmap) or ""
                 family_name = self.parser.find_text(ubo_element, './cbc:FamilyName', namespaces=self.parser.nsmap) or ""
-                full_name = f"{first_name} {family_name}".strip() or "Unknown Beneficial Owner"
+                full_name = f"{first_name} {family_name}".strip()
 
                 # Fetch and process nationality to avoid NoneType error
                 raw_nationality_code = self.parser.find_text(ubo_element, "./efac:Nationality/cbc:NationalityID", namespaces=self.parser.nsmap)
