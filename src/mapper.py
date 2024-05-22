@@ -3152,6 +3152,52 @@ class TEDtoOCDSConverter:
                     }
                     self.add_or_update_lot(self.tender["lots"], lot_info)
 
+    def fetch_bt773_subcontracting(self, root_element):
+        """
+        Fetches BT-773: Whether at least a part of the contract will be subcontracted.
+        """
+        lot_tenders = root_element.xpath(".//efac:NoticeResult/efac:LotTender", namespaces=self.parser.nsmap)
+        for lot_tender in lot_tenders:
+            tender_id = self.parser.find_text(lot_tender, "./cbc:ID", namespaces=self.parser.nsmap)
+                    
+            if tender_id:
+                bid = {
+                    "id": tender_id,
+                    "relatedLots": [self.parser.find_text(lot_tender, "./efac:TenderLot/cbc:ID")]
+                }
+
+                subcontracting_term = self.parser.find_text(
+                    lot_tender, "./efac:SubcontractingTerm[efbc:TermCode/@listName='applicability']/efbc:TermCode", namespaces=self.parser.nsmap
+                )
+                if subcontracting_term:
+                    bid["hasSubcontracting"] = subcontracting_term.lower() == "yes"
+
+                # Add rank
+                rank = self.parser.find_text(lot_tender, "./cbc:RankCode", namespaces=self.parser.nsmap)
+                if rank:
+                    bid["rank"] = int(rank)
+                    bid["hasRank"] = True
+
+                # Add "value"
+                value = self.parser.find_text(lot_tender, "./cac:LegalMonetaryTotal/cbc:PayableAmount", namespaces=self.parser.nsmap)
+                currency_id = self.parser.find_attribute(lot_tender, "./cac:LegalMonetaryTotal/cbc:PayableAmount", "currencyID")
+                if value and currency_id:
+                    bid["value"] = {
+                        "amount": float(value),
+                        "currency": currency_id
+                    }
+
+                # Find tenderer organizations
+                tenderers = lot_tender.xpath("efac:TenderingParty[efac:Tenderer]", namespaces=self.parser.nsmap)
+                for tenderer_entry in tenderers:
+                    tenderer_id = self.parser.find_text(tenderer_entry, "efac:Tenderer/efac:PartyIdentification/cbc:ID", namespaces=self.parser.nsmap)
+                    if tenderer_id:
+                        bid.setdefault("tenderers", []).append({
+                            "id": tenderer_id
+                        })
+
+                self.tender["bids"]["details"].append(bid)
+
     def convert_tender_to_ocds(self):
         root = self.parser.root
         ocid = "ocds-" + str(uuid.uuid4())
@@ -3163,62 +3209,66 @@ class TEDtoOCDSConverter:
 
         contract_signed_date = None
 
-        # Ensure bids and details are initialized
-        if "bids" not in self.tender or "details" not in self.tender["bids"]:
-            self.tender.setdefault("bids", {}).setdefault("details", [])
+        # Initialize bids and details
+        self.tender.setdefault("bids", {}).setdefault("details", [])
 
-        # Existing fetch calls
-        self.fetch_bt710_bt711_bid_statistics(root)
-        self.fetch_bt712_complaints_statistics(root)
-        # (other calls)
+        # Fetch data
+        try:
+            self.fetch_bt710_bt711_bid_statistics(root)
+            self.fetch_bt712_complaints_statistics(root)
+            self.fetch_bt09_cross_border_law(root)
+            self.fetch_bt111_lot_buyer_categories(root)
+            self.fetch_bt766_dynamic_purchasing_system_lot(root)
+            self.fetch_bt766_dynamic_purchasing_system_part(root)
+            self.fetch_bt775_social_procurement(root)
+            self.fetch_bt06_lot_strategic_procurement(root)
+            self.fetch_bt539_award_criterion_type(root)
+            self.fetch_bt540_award_criterion_description(root)
+            self.fetch_bt541_award_criterion_fixed_number(root)
+            self.fetch_bt5421_award_criterion_number_weight(root)
+            self.fetch_bt5422_award_criterion_number_fixed(root)
+            self.fetch_bt5423_award_criterion_number_threshold(root)
+            self.fetch_bt543_award_criteria_complicated(root)
+            self.fetch_bt733_award_criteria_order_rationale(root)
+            self.fetch_bt734_award_criterion_name(root)
+            self.handle_bt14_and_bt707(root)
+            self.fetch_opp_050_buyers_group_lead(root)
+            self.fetch_opt_300_contract_signatory(root)
+            # Call the new method
+            self.fetch_bt773_subcontracting(root)
+        except Exception as e:
+            logging.error(f"Error fetching data: {e}")
 
-        # New fetch methods for additional mappings
-        self.fetch_bt09_cross_border_law(root)
-        self.fetch_bt111_lot_buyer_categories(root)
-        self.fetch_bt766_dynamic_purchasing_system_lot(root)
-        self.fetch_bt766_dynamic_purchasing_system_part(root)
-        self.fetch_bt775_social_procurement(root)
-        self.fetch_bt06_lot_strategic_procurement(root)
-        self.fetch_bt539_award_criterion_type(root)
-        self.fetch_bt540_award_criterion_description(root)
-        self.fetch_bt541_award_criterion_fixed_number(root)
-        self.fetch_bt5421_award_criterion_number_weight(root)
-        self.fetch_bt5422_award_criterion_number_fixed(root)
-        self.fetch_bt5423_award_criterion_number_threshold(root)
-        self.fetch_bt543_award_criteria_complicated(root)
-        self.fetch_bt733_award_criteria_order_rationale(root)
-        self.fetch_bt734_award_criterion_name(root)
-        self.handle_bt14_and_bt707(root)
-        self.fetch_opp_050_buyers_group_lead(root)
-        self.fetch_opt_300_contract_signatory(root)
+        # Parse and map the data
+        try:
+            language = self.fetch_notice_language(root)
+            activities = self.parse_activity_authority(root)
+            legal_types = self.parse_buyer_legal_type(root)
+            lots, aggregated_part_value, award_criteria_found = self.parse_lots(root)
+            legal_basis = self.get_legal_basis(root)
+            additional_info = self.fetch_bt300_additional_info(root)
+            tender_estimated_value = self.fetch_tender_estimated_value(root)
+            procedure_type = self.parse_procedure_type(root)
+            procurement_method_rationale, procurement_method_rationale_classifications = self.parse_direct_award_justification(root)
+            procedure_features = self.parse_procedure_features(root)
+            classifications = self.parse_classifications(root)
+            related_processes = self.parse_related_processes(root)
 
-        # Additional existing methods
-        language = self.fetch_notice_language(root)
-        activities = self.parse_activity_authority(root)
-        legal_types = self.parse_buyer_legal_type(root)
-        lots, aggregated_part_value, award_criteria_found = self.parse_lots(root)
-        legal_basis = self.get_legal_basis(root)
-        additional_info = self.fetch_bt300_additional_info(root)
-        tender_estimated_value = self.fetch_tender_estimated_value(root)
-        procedure_type = self.parse_procedure_type(root)
-        procurement_method_rationale, procurement_method_rationale_classifications = self.parse_direct_award_justification(root)
-        procedure_features = self.parse_procedure_features(root)
-        classifications = self.parse_classifications(root)
+            self.handle_bidding_documents(root)
+            self.fetch_opt_315_contract_identifier(root)
+            self.fetch_bt200_contract_modification(root)
 
-        self.handle_bidding_documents(root)
-        self.fetch_opt_315_contract_identifier(root)
-        self.fetch_bt200_contract_modification(root)
-
-        # Extract the latest contract signed date
-        for award in self.awards:
-            for contract in award.get("contracts", []):
-                if contract.get("dateSigned"):
-                    contract_signed_date = contract["dateSigned"]
+            for award in self.awards:
+                for contract in award.get("contracts", []):
+                    if contract.get("dateSigned"):
+                        contract_signed_date = contract["dateSigned"]
+                        break
+                if contract_signed_date:
                     break
-            if contract_signed_date:
-                break
+        except Exception as e:
+            logging.error(f"Error processing data: {e}")
 
-        # Construct tender object
+        # Construct the tender object
         tender = {
             "id": self.parser.find_text(root, ".//cbc:ContractFolderID"),
             "status": form_type['tender_status'],
@@ -3232,47 +3282,20 @@ class TEDtoOCDSConverter:
             } if award_criteria_found else None,
             "procurementMethod": procedure_type["method"] if procedure_type else None,
             "procurementMethodDetails": procedure_type["details"] if procedure_type else None,
-            "procurementMethodRationale": procurement_method_rationale if procurement_method_rationale else None,
-            "procurementMethodRationaleClassifications": procurement_method_rationale_classifications if procurement_method_rationale_classifications else None,
+            "procurementMethodRationale": procurement_method_rationale,
+            "procurementMethodRationaleClassifications": procurement_method_rationale_classifications,
             "value": tender_estimated_value,
-            "procedureFeatures": procedure_features if procedure_features else None,
+            "procedureFeatures": procedure_features,
             "submissionMethod": ["electronicSubmission"],
             "documents": self.tender.get("documents", []),
-            "items": classifications["items"]
+            "items": classifications.get("items", [])
         }
 
-        # Additional mappings
-        part_main_nature_code = self.parser.find_text(root, ".//cac:ProcurementProjectLot[cbc:ID/@schemeName='Part']/cac:ProcurementProject/cbc:ProcurementTypeCode[@listName='contract-nature']")
-        if part_main_nature_code:
-            if part_main_nature_code in {'works', 'services'}:
-                tender['mainProcurementCategory'] = part_main_nature_code
-            elif part_main_nature_code == 'supplies':
-                tender['mainProcurementCategory'] = 'goods'
-        
-        procedure_main_nature_code = self.parser.find_text(root, ".//cac:ProcurementProject/cbc:ProcurementTypeCode")
-        if procedure_main_nature_code:
-            if procedure_main_nature_code in {'works', 'services'}:
-                tender['mainProcurementCategory'] = procedure_main_nature_code
-            elif procedure_main_nature_code == 'supplies':
-                tender['mainProcurementCategory'] = 'goods'
-
-        for lot_element in self.parser.find_nodes(root, ".//cac:ProcurementProjectLot"):
-            auction_url, submission_url = self.fetch_urls_for_lot(lot_element, 'Lot')
-            lot_id = self.parser.find_text(lot_element, "./cbc:ID", namespaces=self.parser.nsmap)
-            lot_info = {
-                "id": lot_id,
-                "techniques": {"electronicAuction": {"url": auction_url}} if auction_url else None,
-                "submissionMethodDetails": submission_url if submission_url else None
-            }
-            self.add_or_update_lot(tender['lots'], lot_info)
-
         unique_parties = {}
-
         for party in self.parties:
             if not party.get("id"):
                 logging.warning(f"Party without ID found, skipping: {party}")
                 continue
-
             if party["id"] not in unique_parties:
                 unique_parties[party["id"]] = party
             else:
@@ -3295,7 +3318,6 @@ class TEDtoOCDSConverter:
                         existing_party[key].update(value)
                     else:
                         existing_party[key] = value
-
         unique_parties = list(unique_parties.values())
 
         for party in unique_parties:
@@ -3304,7 +3326,6 @@ class TEDtoOCDSConverter:
                 party["beneficialOwners"] = list(unique_bos.values())
 
         notice_uri = self.parser.find_text(root, ".//cbc:URI", namespaces=self.parser.nsmap)
-
         release = {
             "id": self.parser.find_text(root, "./cbc:ID"),
             "ocid": ocid,
@@ -3314,7 +3335,7 @@ class TEDtoOCDSConverter:
             "parties": unique_parties,
             "language": language,
             "tender": tender,
-            "relatedProcesses": self.parse_related_processes(root),
+            "relatedProcesses": related_processes,
             "awards": self.awards,
             "contracts": [{"dateSigned": contract_signed_date}] if contract_signed_date else [],
             "uri": notice_uri,
