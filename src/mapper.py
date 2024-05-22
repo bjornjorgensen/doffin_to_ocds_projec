@@ -2954,6 +2954,204 @@ class TEDtoOCDSConverter:
             self.awards[0]["contracts"].append(new_contract)
         return new_contract
 
+    def fetch_bt775_social_procurement(self, root_element):
+        lots = root_element.xpath(".//cac:ProcurementProjectLot[cbc:ID/@schemeName='Lot']", namespaces=self.parser.nsmap)
+        for lot in lots:
+            codes = lot.xpath(".//cac:ProcurementProject/cac:ProcurementAdditionalType[cbc:ProcurementTypeCode/@listName='social-objective']/cbc:ProcurementTypeCode", namespaces=self.parser.nsmap)
+            lot_id = self.parser.find_text(lot, "./cbc:ID", namespaces=self.parser.nsmap)
+            sustainability = []
+            strategies = ["awardCriteria", "contractPerformanceConditions", "selectionCriteria", "technicalSpecifications"]
+            for code in codes:
+                code = code.text
+                if code and code != "none":
+                    sustainability.append({
+                        "goal": self.map_social_procurement_code(code),
+                        "strategies": strategies
+                    })
+            if sustainability:
+                lot_info = {
+                    "id": lot_id,
+                    "hasSustainability": True,
+                    "sustainability": sustainability
+                }
+                self.add_or_update_lot(self.tender["lots"], lot_info)
+
+    def map_social_procurement_code(self, code):
+        mapping = {
+            "et-eq": "social.ethnicEquality",
+            # Add more mappings as required
+        }
+        return mapping.get(code, code)
+    
+    def fetch_bt06_lot_strategic_procurement(self, root_element):
+        lots = root_element.xpath(".//cac:ProcurementProjectLot[cbc:ID/@schemeName='Lot']", namespaces=self.parser.nsmap)
+        for lot in lots:
+            codes = lot.xpath(".//cac:ProcurementProject/cac:ProcurementAdditionalType[cbc:ProcurementTypeCode/@listName='strategic-procurement']/cbc:ProcurementTypeCode", namespaces=self.parser.nsmap)
+            lot_id = self.parser.find_text(lot, "./cbc:ID", namespaces=self.parser.nsmap)
+            sustainability = []
+            strategies = ["awardCriteria", "contractPerformanceConditions", "selectionCriteria", "technicalSpecifications"]
+            for code in codes:
+                code = code.text
+                if code and code != "none":
+                    sustainability.append({
+                        "goal": self.map_strategic_procurement_code(code),
+                        "strategies": strategies
+                    })
+            if sustainability:
+                lot_info = {
+                    "id": lot_id,
+                    "hasSustainability": True,
+                    "sustainability": sustainability
+                }
+                self.add_or_update_lot(self.tender["lots"], lot_info)
+
+    def map_strategic_procurement_code(self, code):
+        mapping = {
+            "inn-pur": "economic.innovativePurchase",
+            # Add more mappings as required
+        }
+        return mapping.get(code, code)
+    
+    def fetch_bt539_award_criterion_type(self, root_element):
+        lots = root_element.xpath(".//cac:ProcurementProjectLot[cbc:ID/@schemeName='Lot']", namespaces=self.parser.nsmap)
+        for lot in lots:
+            criteria_elements = lot.xpath(".//cac:TenderingTerms/cac:AwardingTerms/cac:AwardingCriterion/cac:SubordinateAwardingCriterion", namespaces=self.parser.nsmap)
+            lot_id = self.parser.find_text(lot, "./cbc:ID", namespaces=self.parser.nsmap)
+            for criterion in criteria_elements:
+                criterion_type = self.parser.find_text(criterion, "./cbc:AwardingCriterionTypeCode[@listName='award-criterion-type']")
+                if criterion_type:
+                    lot_info = {
+                        "id": lot_id,
+                        "awardCriteria": {
+                            "criteria": [{"type": criterion_type}]
+                        }
+                    }
+                    self.add_or_update_lot(self.tender["lots"], lot_info)
+    
+    def fetch_bt540_award_criterion_description(self, root_element):
+        lots = root_element.xpath(".//cac:ProcurementProjectLot[cbc:ID/@schemeName='Lot']", namespaces=self.parser.nsmap)
+        for lot in lots:
+            criteria_elements = lot.xpath(".//cac:TenderingTerms/cac:AwardingTerms/cac:AwardingCriterion/cac:SubordinateAwardingCriterion", namespaces=self.parser.nsmap)
+            lot_id = self.parser.find_text(lot, "./cbc:ID", namespaces=self.parser.nsmap)
+            for criterion in criteria_elements:
+                description = self.parser.find_text(criterion, "./cbc:Description")
+                if description:
+                    lot_info = {
+                        "id": lot_id,
+                        "awardCriteria": {
+                            "criteria": [{"description": description}]
+                        }
+                    }
+                    self.add_or_update_lot(self.tender["lots"], lot_info)
+
+    def fetch_bt541_award_criterion_fixed_number(self, root_element):
+        lots = root_element.xpath(".//cac:ProcurementProjectLot[cbc:ID/@schemeName='Lot']", namespaces=self.parser.nsmap)
+        for lot in lots:
+            criteria_elements = lot.xpath(".//cac:TenderingTerms/cac:AwardingTerms/cac:AwardingCriterion/cac:SubordinateAwardingCriterion/ext:UBLExtensions/ext:UBLExtension/ext:ExtensionContent/efext:EformsExtension/efac:AwardCriterionParameter[efbc:ParameterCode/@listName='number-fixed']/efbc:ParameterNumeric", namespaces=self.parser.nsmap)
+            lot_id = self.parser.find_text(lot, "./cbc:ID", namespaces=self.parser.nsmap)
+            for criterion in criteria_elements:
+                number = self.parser.find_text(criterion, "./efbc:ParameterNumeric")
+                if number:
+                    lot_info = {
+                        "id": lot_id,
+                        "awardCriteria": {
+                            "criteria": [{"numbers": [{"number": float(number)}]}]
+                        }
+                    }
+                    self.add_or_update_lot(self.tender["lots"], lot_info)
+    
+    def fetch_bt5421_award_criterion_number_weight(self, root_element):
+        lots = root_element.xpath(".//cac:ProcurementProjectLot[cbc:ID/@schemeName='Lot']", namespaces=self.parser.nsmap)
+        for lot in lots:
+            criteria_elements = lot.xpath(".//cac:TenderingTerms/cac:AwardingTerms/cac:AwardingCriterion/cac:SubordinateAwardingCriterion/ext:UBLExtensions/ext:UBLExtension/ext:ExtensionContent/efext:EformsExtension/efac:AwardCriterionParameter[efbc:ParameterCode/@listName='number-weight']/efbc:ParameterCode", namespaces=self.parser.nsmap)
+            lot_id = self.parser.find_text(lot, "./cbc:ID", namespaces=self.parser.nsmap)
+            for criterion in criteria_elements:
+                weight = self.parser.find_text(criterion, "./efbc:ParameterCode")
+                if weight:
+                    lot_info = {
+                        "id": lot_id,
+                        "awardCriteria": {
+                            "criteria": [{"numbers": [{"weight": self.map_award_criterion_number_weight(weight)}]}]
+                        }
+                    }
+                    self.add_or_update_lot(self.tender["lots"], lot_info)
+
+    def fetch_bt5422_award_criterion_number_fixed(self, root_element):
+        lots = root_element.xpath(".//cac:ProcurementProjectLot[cbc:ID/@schemeName='Lot']", namespaces=self.parser.nsmap)
+        for lot in lots:
+            criteria_elements = lot.xpath(".//cac:TenderingTerms/cac:AwardingTerms/cac:AwardingCriterion/cac:SubordinateAwardingCriterion/ext:UBLExtensions/ext:UBLExtension/ext:ExtensionContent/efext:EformsExtension/efac:AwardCriterionParameter[efbc:ParameterCode/@listName='number-fixed']/efbc:ParameterCode", namespaces=self.parser.nsmap)
+            lot_id = self.parser.find_text(lot, "./cbc:ID", namespaces=self.parser.nsmap)
+            for criterion in criteria_elements:
+                fixed = self.parser.find_text(criterion, "./efbc:ParameterCode")
+                if fixed:
+                    lot_info = {
+                        "id": lot_id,
+                        "awardCriteria": {
+                            "criteria": [{"numbers": [{"fixed": self.map_award_criterion_number_fixed(fixed)}]}]
+                        }
+                    }
+                    self.add_or_update_lot(self.tender["lots"], lot_info)
+
+    def fetch_bt5423_award_criterion_number_threshold(self, root_element):
+        lots = root_element.xpath(".//cac:ProcurementProjectLot[cbc:ID/@schemeName='Lot']", namespaces=self.parser.nsmap)
+        for lot in lots:
+            criteria_elements = lot.xpath(".//cac:TenderingTerms/cac:AwardingTerms/cac:AwardingCriterion/cac:SubordinateAwardingCriterion/ext:UBLExtensions/ext:UBLExtension/ext:ExtensionContent/efext:EformsExtension/efac:AwardCriterionParameter[efbc:ParameterCode/@listName='number-threshold']/efbc:ParameterCode", namespaces=self.parser.nsmap)
+            lot_id = self.parser.find_text(lot, "./cbc:ID", namespaces=self.parser.nsmap)
+            for criterion in criteria_elements:
+                threshold = self.parser.find_text(criterion, "./efbc:ParameterCode")
+                if threshold:
+                    lot_info = {
+                        "id": lot_id,
+                        "awardCriteria": {
+                            "criteria": [{"numbers": [{"threshold": self.map_award_criterion_number_threshold(threshold)}]}]
+                        }
+                    }
+                    self.add_or_update_lot(self.tender["lots"], lot_info)
+
+    def fetch_bt543_award_criteria_complicated(self, root_element):
+        lots = root_element.xpath(".//cac:ProcurementProjectLot[cbc:ID/@schemeName='Lot']", namespaces=self.parser.nsmap)
+        for lot in lots:
+            calculation_expression = self.parser.find_text(lot, ".//cac:TenderingTerms/cac:AwardingTerms/cac:AwardingCriterion/cbc:CalculationExpression")
+            lot_id = self.parser.find_text(lot, "./cbc:ID", namespaces=self.parser.nsmap)
+            if calculation_expression:
+                lot_info = {
+                    "id": lot_id,
+                    "awardCriteria": {
+                        "weightingDescription": calculation_expression
+                    }
+                }
+                self.add_or_update_lot(self.tender["lots"], lot_info)
+
+    def fetch_bt733_award_criteria_order_rationale(self, root_element):
+        lots = root_element.xpath(".//cac:ProcurementProjectLot[cbc:ID/@schemeName='Lot']", namespaces=self.parser.nsmap)
+        for lot in lots:
+            order_rationale = self.parser.find_text(lot, ".//cac:TenderingTerms/cac:AwardingTerms/cac:AwardingCriterion/cbc:Description")
+            lot_id = self.parser.find_text(lot, "./cbc:ID", namespaces=self.parser.nsmap)
+            if order_rationale:
+                lot_info = {
+                    "id": lot_id,
+                    "awardCriteria": {
+                        "orderRationale": order_rationale
+                    }
+                }
+                self.add_or_update_lot(self.tender["lots"], lot_info)
+
+    def fetch_bt734_award_criterion_name(self, root_element):
+        lots = root_element.xpath(".//cac:ProcurementProjectLot[cbc:ID/@schemeName='Lot']", namespaces=self.parser.nsmap)
+        for lot in lots:
+            criteria_elements = lot.xpath(".//cac:TenderingTerms/cac:AwardingTerms/cac:AwardingCriterion/cac:SubordinateAwardingCriterion", namespaces=self.parser.nsmap)
+            lot_id = self.parser.find_text(lot, "./cbc:ID", namespaces=self.parser.nsmap)
+            for criterion in criteria_elements:
+                name = self.parser.find_text(criterion, "./cbc:Name")
+                if name:
+                    lot_info = {
+                        "id": lot_id,
+                        "awardCriteria": {
+                            "criteria": [{"name": name}]
+                        }
+                    }
+                    self.add_or_update_lot(self.tender["lots"], lot_info)
+
     def convert_tender_to_ocds(self):
         root = self.parser.root
         ocid = "ocds-" + str(uuid.uuid4())
@@ -2979,6 +3177,18 @@ class TEDtoOCDSConverter:
         self.fetch_bt111_lot_buyer_categories(root)
         self.fetch_bt766_dynamic_purchasing_system_lot(root)
         self.fetch_bt766_dynamic_purchasing_system_part(root)
+        self.fetch_bt775_social_procurement(root)
+        self.fetch_bt06_lot_strategic_procurement(root)
+        self.fetch_bt539_award_criterion_type(root)
+        self.fetch_bt540_award_criterion_description(root)
+        self.fetch_bt541_award_criterion_fixed_number(root)
+        self.fetch_bt5421_award_criterion_number_weight(root)
+        self.fetch_bt5422_award_criterion_number_fixed(root)
+        self.fetch_bt5423_award_criterion_number_threshold(root)
+        self.fetch_bt543_award_criteria_complicated(root)
+        self.fetch_bt733_award_criteria_order_rationale(root)
+        self.fetch_bt734_award_criterion_name(root)
+        self.handle_bt14_and_bt707(root)
         self.fetch_opp_050_buyers_group_lead(root)
         self.fetch_opt_300_contract_signatory(root)
 
@@ -3144,20 +3354,22 @@ class TEDtoOCDSConverter:
         logging.info('Conversion to OCDS format completed.')
         return cleaned_release
 
-def convert_ted_to_ocds(xml_file):
-    logging.basicConfig(level=logging.DEBUG) 
+def main(xml_file):
+    logging.basicConfig(level=logging.DEBUG)
+    
     try:
         parser = XMLParser(xml_file)
         converter = TEDtoOCDSConverter(parser)
+        
         release_info = converter.convert_tender_to_ocds()
+        
         result = json.dumps({"releases": [release_info]}, indent=2, ensure_ascii=False)
-        return result
+        print(result)
+        
     except Exception as e:
         logging.error(f"An error occurred: {e}")
-        raise
 
-# Example usage
-xml_file = "can_24_minimal.xml"
-ocds_json = convert_ted_to_ocds(xml_file)
-print(ocds_json)
+if __name__ == "__main__":
+    xml_file = "can_24_minimal.xml"  
+    main(xml_file)
 
