@@ -1634,46 +1634,38 @@ class TEDtoOCDSConverter:
 
     def parse_lots(self, element):
         lots = []
-        tender_value_aggregate = {
-            "amount": 0,
-            "currency": None
-        }
-        part_lot_found = False  # Tracker for 'Part' flagged lots
-        award_criteria_found = False  # Tracker for award criteria existence
-
         lot_elements = element.findall(".//cac:ProcurementProjectLot", namespaces=self.parser.nsmap)
+        
         for lot_element in lot_elements:
-            lot = self.parse_single_lot(lot_element)
+            lot_id = self.parser.find_text(lot_element, "./cbc:ID")  # Lot ID
+            lot_title = self.parser.find_text(lot_element, ".//cac:ProcurementProject/cbc:Name")  # Lot Title
+            gpa_indicator = self.parser.find_text(lot_element, "./cac:TenderingProcess/cbc:GovernmentAgreementConstraintIndicator") == 'true'
+            estimated_value_element = self.parser.find_node(lot_element, ".//cac:ProcurementProject/cac:RequestedTenderTotal/cbc:EstimatedOverallContractAmount")
+            
+            lot = {
+                "id": lot_id,
+                "title": lot_title,
+                "description": self.parser.find_text(lot_element, ".//cac:ProcurementProject/cbc:Description"),
+                "mainProcurementCategory": self.parser.find_text(lot_element, ".//cac:ProcurementProject/cbc:ProcurementTypeCode[@listName='contract-nature']"),
+                "value": {
+                    "amount": float(estimated_value_element.text) if estimated_value_element is not None else None,
+                    "currency": estimated_value_element.get('currencyID') if estimated_value_element is not None else None
+                },
+                "coveredBy": ["GPA"] if gpa_indicator else None,
+                "items": self.parse_items(lot_element),
+                "reviewDetails": self.parser.find_text(lot_element, ".//cac:TenderingTerms/cac:AppealTerms/cac:SpecialTerms/cbc:Description"),
+                "awardCriteria": self.parse_award_criteria(lot_element),
+                "techniques": {
+                    "hasElectronicAuction": self.parser.find_text(lot_element, ".//cac:TenderingProcess/cac:AuctionTerms/cbc:AuctionConstraintIndicator") == 'true'
+                },
+                "identifiers": {
+                    "id": self.parser.find_text(lot_element, ".//cbc:ID"),
+                    "scheme": "internal"
+                }
+            }
             lots.append(lot)
 
-            # Handle lot groups (if applicable)
-            lot_group = self.parse_lot_group(lot_element)
-            if lot_group:
-                if 'lotGroups' not in lot:
-                    lot['lotGroups'] = []
-                lot['lotGroups'].append(lot_group)
-
-            # Check if the lot was marked as a 'Part'
-            if lot.get('isPartScheme'):
-                part_lot_found = True
-                if lot['value']['amount'] is not None:
-                    if tender_value_aggregate['currency'] is None:
-                        tender_value_aggregate['currency'] = lot['value']['currency']
-                    if tender_value_aggregate['currency'] == lot['value']['currency']:
-                        tender_value_aggregate['amount'] += lot['value']['amount']
-                    else:
-                        # Handle currency mismatch case if necessary; simplified example assumes same currency
-                        print("Currency mismatch; additional logic required.")
-
-            # Check if the lot has award criteria
-            if 'awardCriteria' in lot and lot['awardCriteria']['criteria']:
-                award_criteria_found = True
-
-        # If there was a 'Part' lot and valid calculations, attach at tender level
-        if part_lot_found and tender_value_aggregate['amount'] > 0:
-            return lots, tender_value_aggregate, award_criteria_found
-
-        return lots, None, award_criteria_found
+        return lots
     
     def parse_lot_group(self, lot_element):
         lot_id = self.parser.find_attribute(lot_element, "./cbc:ID", "schemeName")
@@ -1915,36 +1907,18 @@ class TEDtoOCDSConverter:
         tender_value_elements = root.findall(".//ext:UBLExtensions/ext:UBLExtension/ext:ExtensionContent/efext:EformsExtension/efac:NoticeResult/efac:LotTender", namespaces=self.parser.nsmap)
             
         for tender_value_element in tender_value_elements:
-            tender_id = self.parser.find_text(tender_value_element, "./cbc:ID", namespaces=self.parser.nsmap)
-            payable_amount = self.parser.find_text(tender_value_element, "./cac:LegalMonetaryTotal/cbc:PayableAmount", namespaces=self.parser.nsmap)
-            currency_id = tender_value_element.find(".//cbc:PayableAmount", namespaces=self.parser.nsmap).get('currencyID')
-
-            # Related information: Lot and Result ID linking
-            lot_id = self.parser.find_text(tender_value_element, "./efac:TenderLot/cbc:ID", namespaces=self.parser.nsmap)
-            result_id = self.parser.find_text(tender_value_element.getparent(), "./efac:LotResult/cbc:ID", namespaces=self.parser.nsmap)
-
-            bids_detail = {
-                "id": tender_id,
-                "value": {
-                    "amount": float(payable_amount) if payable_amount else None,
-                    "currency": currency_id
-                },
-                "relatedLot": lot_id
-            }
+            tender_id = self.parser.find_text(tender_value_element, "./cbc:ID")
+            payable_amount_element = tender_value_element.find("./cac:LegalMonetaryTotal/cbc:PayableAmount", namespaces=self.parser.nsmap)
             
-            tender_values.append(bids_detail)
-            
-            # Connect also the award
-            award = {
-                "id": result_id,
-                "value": {
-                    "amount": float(payable_amount) if payable_amount else None,
-                    "currency": currency_id
-                },
-                "relatedLots": [lot_id]
-            }
-            
-            self.add_update_award(award)
+            if tender_id and payable_amount_element is not None:
+                tender_values.append({
+                    "id": tender_id,
+                    "value": {
+                        "amount": float(payable_amount_element.text) if payable_amount_element.text else None,
+                        "currency": payable_amount_element.get('currencyID')
+                    },
+                    "relatedLot": self.parser.find_text(tender_value_element, "./efac:TenderLot/cbc:ID")
+                })
 
         return tender_values
     
@@ -3159,12 +3133,10 @@ class TEDtoOCDSConverter:
         root = self.parser.root
         ocid = "ocds-" + str(uuid.uuid4())
         dispatch_datetime = self.get_dispatch_date_time()
-        tender_title = self.parser.find_text(root, ".//cac:ProcurementProject/cbc:Name", namespaces=self.parser.nsmap)
+        tender_title = self.parser.find_text(root, ".//cac:ProcurementProject/cbc:Name")
 
         form_type = self.get_form_type(root)
         self.parties = self.parse_organizations(root)
-
-        contract_signed_date = None
 
         # Initialize bids and details
         self.tender.setdefault("bids", {}).setdefault("details", [])
@@ -3203,7 +3175,7 @@ class TEDtoOCDSConverter:
             language = self.fetch_notice_language(root)
             activities = self.parse_activity_authority(root)
             legal_types = self.parse_buyer_legal_type(root)
-            lots, aggregated_part_value, award_criteria_found = self.parse_lots(root)
+            lots = self.parse_lots(root)
             legal_basis = self.get_legal_basis(root)
             additional_info = self.fetch_bt300_additional_info(root)
             tender_estimated_value = self.fetch_tender_estimated_value(root)
@@ -3216,14 +3188,6 @@ class TEDtoOCDSConverter:
             self.handle_bidding_documents(root)
             self.fetch_opt_315_contract_identifier(root)
             self.fetch_bt200_contract_modification(root)
-
-            for award in self.awards:
-                for contract in award.get("contracts", []):
-                    if contract.get("dateSigned"):
-                        contract_signed_date = contract["dateSigned"]
-                        break
-                if contract_signed_date:
-                    break
         except Exception as e:
             logging.error(f"Error processing data: {e}")
 
@@ -3235,10 +3199,6 @@ class TEDtoOCDSConverter:
             "description": additional_info,
             "legalBasis": legal_basis,
             "lots": lots,
-            "lotGroups": [{"maximumValue": aggregated_part_value}] if aggregated_part_value else None,
-            "awardCriteria": {
-                "criteria": [criterion for lot in lots for criterion in lot.get('awardCriteria', {}).get('criteria', [])]
-            } if award_criteria_found else None,
             "procurementMethod": procedure_type["method"] if procedure_type else None,
             "procurementMethodDetails": procedure_type["details"] if procedure_type else None,
             "procurementMethodRationale": procurement_method_rationale,
@@ -3246,9 +3206,8 @@ class TEDtoOCDSConverter:
             "value": tender_estimated_value,
             "procedureFeatures": procedure_features if procedure_features else None,
             "submissionMethod": ["electronicSubmission"],
-            "documents": self.tender.get("documents", []),
             "items": items,
-            "classification": {"activities": activities} if activities else {},      
+            "classification": {"activities": activities} if activities else {},
         }
 
         unique_parties = {}
@@ -3300,7 +3259,7 @@ class TEDtoOCDSConverter:
             "tender": tender,
             "relatedProcesses": related_processes,
             "awards": self.awards,
-            "contracts": [{"dateSigned": contract_signed_date}] if contract_signed_date else [],
+            "contracts": [{"dateSigned": self.get_contract_signed_date()}] if self.get_contract_signed_date() else [],
             "uri": notice_uri,
             "planning": {
                 "budget": {
@@ -3333,8 +3292,6 @@ class TEDtoOCDSConverter:
             release['bids'] = self.tender["bids"]
 
         cleaned_release = self.clean_release_structure(release)
-        cleaned_release = self.remove_schema_from_identifier(cleaned_release)
-
         logging.info('Conversion to OCDS format completed.')
         return cleaned_release
 
