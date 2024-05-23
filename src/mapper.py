@@ -1023,6 +1023,7 @@ class TEDtoOCDSConverter:
             org_id = self.parser.find_text(org_element, "./efac:Company/cac:PartyIdentification/cbc:ID", namespaces=self.parser.nsmap)
             if org_id:
                 logging.debug(f"Processing organization with ID: {org_id}")
+
                 organization = self.get_or_create_organization(organizations, org_id)
                 logging.debug(f"Retrieved organization: {organization}")
 
@@ -1056,67 +1057,58 @@ class TEDtoOCDSConverter:
                 self.update_organization(organization, updated_info)
                 logging.debug(f"Updated organization info: {organization}")
 
-            ubo_elements = org_element.findall(".//efac:UltimateBeneficialOwner", namespaces=self.parser.nsmap)
-            for ubo_element in ubo_elements:
-                ubo_id = self.parser.find_text(ubo_element, "./cbc:ID", namespaces=self.parser.nsmap)
-                if ubo_id:
-                    logging.debug(f"Processing UBO with ID: {ubo_id}")
-                    first_name = self.parser.find_text(ubo_element, './cbc:FirstName', namespaces=self.parser.nsmap) or ""
-                    family_name = self.parser.find_text(ubo_element, './cbc:FamilyName', namespaces=self.parser.nsmap) or ""
-                    full_name = f"{first_name} {family_name}".strip()
+                # Beneficial Owners
+                ubo_elements = org_element.findall(".//efac:UltimateBeneficialOwner", namespaces=self.parser.nsmap)
+                for ubo_element in ubo_elements:
+                    ubo_id = self.parser.find_text(ubo_element, "./cbc:ID", namespaces=self.parser.nsmap)
+                    if ubo_id:
+                        logging.debug(f"Processing UBO with ID: {ubo_id}")
+                        first_name = self.parser.find_text(ubo_element, './cbc:FirstName', namespaces=self.parser.nsmap) or ""
+                        family_name = self.parser.find_text(ubo_element, './cbc:FamilyName', namespaces=self.parser.nsmap) or ""
+                        full_name = f"{first_name} {family_name}".strip()
 
-                    # Fetch and process nationality to avoid NoneType error
-                    raw_nationality_code = self.parser.find_text(ubo_element, "./efac:Nationality/cbc:NationalityID", namespaces=self.parser.nsmap)
-                    processed_nationality_code = self.convert_language_code(raw_nationality_code, 'country') if raw_nationality_code else None
+                        raw_nationality_code = self.parser.find_text(ubo_element, "./efac:Nationality/cbc:NationalityID", namespaces=self.parser.nsmap)
+                        processed_nationality_code = self.convert_language_code(raw_nationality_code, 'country') if raw_nationality_code else None
 
-                    ubo_info = {
-                        "id": ubo_id,
-                        "name": full_name,
-                        "nationality": processed_nationality_code
-                    }
-                    phone_info = self.fetch_bt503_ubo_contact(ubo_element)
-                    if phone_info:
-                        ubo_info.update(phone_info)
+                        ubo_info = {
+                            "id": ubo_id,
+                            "name": full_name,
+                            "nationality": processed_nationality_code
+                        }
+                        phone_info = self.fetch_bt503_ubo_contact(ubo_element)
+                        if phone_info:
+                            ubo_info.update(phone_info)
 
-                    organization.setdefault("beneficialOwners", []).append(ubo_info)
-                    logging.debug(f"Updated organization with UBO: {organization}")
+                        organization.setdefault("beneficialOwners", []).append(ubo_info)
+                        logging.debug(f"Updated organization with UBO: {organization}")
 
-        return organizations
+                # Address, Listed on Market, and Company Size
+                organization['address'] = self.process_ubo_address(org_element)
+                organization['listedOnRegulatedMarket'] = self.fetch_listed_on_regulated_market(org_element)
+                organization['scale'] = self.fetch_company_size(org_element)
+
+            return organizations
     
     def fetch_bt503_touchpoint_contact(self, org_element):
         telephone = self.parser.find_text(org_element, "./efac:TouchPoint/cac:Contact/cbc:Telephone", namespaces=self.parser.nsmap)
         return {"telephone": telephone} if telephone else {}
 
     def get_dispatch_date_time(self):
-        # Fetch the root element of the XML.
         root = self.parser.root
-        
-        # Correctly target the cbc:IssueDate and cbc:IssueTime elements directly under the root or a specific parent.
-        issue_date = self.parser.find_text(root, "./cbc:IssueDate", namespaces=self.parser.nsmap)
-        issue_time = self.parser.find_text(root, "./cbc:IssueTime", namespaces=self.parser.nsmap)
+        issue_date = self.parser.find_text(root, ".//cbc:IssueDate", namespaces=self.parser.nsmap)
+        issue_time = self.parser.find_text(root, ".//cbc:IssueTime", namespaces=self.parser.nsmap)
 
-        # Print extracted date and time for debugging purposes.
-        print(f"Issue Date: {issue_date}")
-        print(f"Issue Time: {issue_time}")
-
-        # Check if both issue date and issue time are present.
         if issue_date and issue_time:
-            # Combine the date and time strings into a single datetime string.
             combined_datetime = f"{issue_date[:10]}T{issue_time[:8]}{issue_date[10:]}"
-            
+
             try:
-                # Parse the combined date and time string into a datetime object.
                 parsed_datetime = datetime.fromisoformat(combined_datetime)
-                # Return the ISO formatted datetime string.
                 return parsed_datetime.isoformat()
             except ValueError as e:
-                # Log the error if the date and time could not be parsed.
                 logging.error(f"Error parsing dispatch date/time: {combined_datetime} - {e}")
         else:
-            # Log a warning if either the issue date or time is missing.
             logging.warning("Missing issue date or issue time in the XML.")
 
-        # Return None if the date and time could not be parsed.
         return None
 
     def get_contract_signed_date(self):
@@ -2544,14 +2536,19 @@ class TEDtoOCDSConverter:
             signatory_id = self.parser.find_text(signatory_party, "./cac:PartyIdentification/cbc:ID", namespaces=self.parser.nsmap)
             if signatory_id:
                 org = self.get_or_create_organization(self.parties, signatory_id)
-                self.update_party_roles(signatory_id, ["buyer"])
-                org_name = self.parser.find_text(root_element, f".//efac:Organizations/efac:Organization[efac:Company/cac:PartyIdentification/cbc:ID='{signatory_id}']/efac:Company/cac:PartyName/cbc:Name", self.parser.nsmap)
+                if 'buyer' not in org['roles']:
+                    org['roles'].append('buyer')
+                org_name = self.parser.find_text(
+                    root_element, 
+                    f".//efac:Organization[efac:Company/cac:PartyIdentification/cbc:ID='{signatory_id}']/efac:Company/cac:PartyName/cbc:Name", 
+                    namespaces=self.parser.nsmap
+                )
                 if org_name:
                     org["name"] = org_name
-                contract_id = self.parser.find_text(signatory_party, './../../cbc:ID', namespaces=self.parser.nsmap)  # Current contract ID
+                contract_id = self.parser.find_text(signatory_party, './../../cbc:ID', namespaces=self.parser.nsmap)
                 for award in self.awards:
                     if contract_id in award.get("relatedContracts", []):
-                        award.setdefault("buyers", []).append({"id": signatory_id})     
+                        award.setdefault("buyers", []).append({"id": signatory_id})
 
     def fetch_opt_320_lotresult_tender_reference(self, root_element):
         lot_results = root_element.findall(".//efac:NoticeResult/efac:LotResult", namespaces=self.parser.nsmap)
@@ -3065,7 +3062,6 @@ class TEDtoOCDSConverter:
                         }
                         subcontract["mainContractors"].append(main_contractor_references)
     def fetch_opt_320_contract_tender_reference(self, root_element):
-        # Fetch settled contract references to tender
         settled_contracts = root_element.findall(".//efac:NoticeResult/efac:SettledContract", namespaces=self.parser.nsmap)
         for contract in settled_contracts:
             tender_id = self.parser.find_text(contract, "./efac:LotTender/cbc:ID", namespaces=self.parser.nsmap)
@@ -3078,7 +3074,7 @@ class TEDtoOCDSConverter:
         root = self.parser.root
         tendering_party_id = self.parser.find_text(root, f".//efac:LotTender[cbc:ID='{tender_id}']/efac:TenderingParty/cbc:ID", namespaces=self.parser.nsmap)
         if tendering_party_id:
-            tenderers = root.findall(f".//efac:TenderingParty[cbc:ID='{tendering_party_id}']//efac:Tenderer", namespaces=self.parser.nsmap)
+            tenderers = root.findall(f".//efac:TenderingParty[cbc:ID='{tendering_party_id}']/*/efac:Tenderer", namespaces=self.parser.nsmap)
             for tenderer in tenderers:
                 tenderer_id = self.parser.find_text(tenderer, "./cbc:ID", namespaces=self.parser.nsmap)
                 if tenderer_id:
@@ -3160,6 +3156,7 @@ class TEDtoOCDSConverter:
             "submissionMethod": ["electronicSubmission"],
             "items": items,
             "classification": {"activities": activities} if activities else {},
+            "contractPeriod": self.parse_contract_period(root)
         }
 
         unique_parties = {}
@@ -3224,6 +3221,14 @@ class TEDtoOCDSConverter:
             for contract in contracts:
                 if 'dateSigned' in contract:
                     release["contracts"].append(contract)
+
+        unique_bids_dict = {bid['id']: bid for bid in self.tender["bids"]["details"]}
+        for bid in unique_bids_dict.values():
+            if 'suppliers' not in bid:
+                for award in release['awards']:
+                    if bid["id"] in award.get("relatedBids", []):
+                        if 'suppliers' in award:
+                            bid['suppliers'] = award['suppliers']
 
         if "bids" in self.tender:
             unique_bids = {}
