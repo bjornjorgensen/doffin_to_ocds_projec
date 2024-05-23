@@ -3081,6 +3081,40 @@ class TEDtoOCDSConverter:
                     self.update_party_roles(tenderer_id, ["supplier"])
                     self.add_supplier_to_award(contract_id, tenderer_id)
 
+    def fetch_bt746_organization_listed_market(self, root_element):
+        organizations = root_element.findall(".//efac:Organizations/efac:Organization", namespaces=self.parser.nsmap)
+        for org_element in organizations:
+            org_id = self.parser.find_text(org_element, "./efac:Company/cac:PartyIdentification/cbc:ID[@schemeName='organization']", namespaces=self.parser.nsmap)
+            if org_id:
+                listed_indicator_text = self.parser.find_text(org_element, "./efbc:ListedOnRegulatedMarketIndicator", namespaces=self.parser.nsmap)
+                if listed_indicator_text is not None:
+                    listed_indicator = listed_indicator_text.lower() == 'true'
+                    organization = self.get_or_create_organization(self.parties, org_id)
+                    organization.setdefault("details", {})["listedOnRegulatedMarket"] = listed_indicator
+                    self.add_or_update_party(self.parties, organization)
+
+    def fetch_bt165_company_size(self, root_element):
+        organizations = root_element.findall(".//efac:Organizations/efac:Organization", namespaces=self.parser.nsmap)
+        for org_element in organizations:
+            org_id = self.parser.find_text(org_element, "./efac:Company/cac:PartyIdentification/cbc:ID[@schemeName='organization']", namespaces=self.parser.nsmap)
+            if org_id:
+                size_code = self.parser.find_text(org_element, "./efac:Company/efbc:CompanySizeCode", namespaces=self.parser.nsmap)
+                if size_code:
+                    organization = self.get_or_create_organization(self.parties, org_id)
+                    organization.setdefault("details", {})["scale"] = size_code.lower()
+
+    def fetch_bt633_natural_person_indicator(self, root_element):
+        organizations = root_element.findall(".//efac:Organizations/efac:Organization", namespaces=self.parser.nsmap)
+        for org_element in organizations:
+            org_id = self.parser.find_text(org_element, "./efac:Company/cac:PartyIdentification/cbc:ID[@schemeName='organization']", namespaces=self.parser.nsmap)
+            if org_id:
+                natural_person_indicator = self.parser.find_text(org_element, "./efbc:NaturalPersonIndicator", namespaces=self.parser.nsmap)
+                if natural_person_indicator is not None:
+                    if natural_person_indicator.lower() == 'true':
+                        # Set to selfEmployed if the indicator is true
+                        organization = self.get_or_create_organization(self.parties, org_id)
+                        organization.setdefault("details", {})["scale"] = "selfEmployed"      
+
     def convert_tender_to_ocds(self):
         root = self.parser.root
         ocid = "ocds-" + str(uuid.uuid4())
@@ -3117,6 +3151,9 @@ class TEDtoOCDSConverter:
             self.fetch_bt773_subcontracting(root)
             self.fetch_opt_310_tendering_party_id(root)
             self.fetch_opt_320_contract_tender_reference(root)
+            self.fetch_bt746_organization_listed_market(root)
+            self.fetch_bt165_company_size(root)  # Fetch Company Size
+            self.fetch_bt633_natural_person_indicator(root)  # Fetch Natural Person Indicator
         except Exception as e:
             logging.error(f"Error fetching data: {e}")
 
