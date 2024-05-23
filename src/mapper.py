@@ -162,24 +162,24 @@ class TEDtoOCDSConverter:
                 })
 
     def fetch_opt_300_contract_signatory(self, root_element):
-        signatories = root_element.xpath(".//efext:EformsExtension/efac:NoticeResult/efac:SettledContract/cac:SignatoryParty/cac:PartyIdentification/cbc:ID", namespaces=self.parser.nsmap)
-        for signatory in signatories:
-            signatory_id = signatory.text
+        signatory_parties = root_element.findall(".//efac:NoticeResult/efac:SettledContract/cac:SignatoryParty", namespaces=self.parser.nsmap)
+        for signatory_party in signatory_parties:
+            signatory_id = self.parser.find_text(signatory_party, "./cac:PartyIdentification/cbc:ID", namespaces=self.parser.nsmap)
             if signatory_id:
-                contract_id = signatory.xpath("ancestor::efext:EformsExtension/efac:NoticeResult/efac:SettledContract/cbc:ID", namespaces=self.parser.nsmap)[0].text
-                self.add_or_update_party(self.parties, {
-                    "id": signatory_id,
-                    "roles": ["buyer"],
-                })
-                org_name = self.parser.find_text(root_element, f".//efac:Organization/efac:Company[cac:PartyIdentification/cbc:ID='{signatory_id}']/cac:PartyName/cbc:Name", namespaces=self.parser.nsmap)
+                org = self.get_or_create_organization(self.parties, signatory_id)
+                if 'buyer' not in org['roles']:
+                    org['roles'].append('buyer')
+                org_name = self.parser.find_text(
+                    root_element, 
+                    f".//efac:Organization[efac:Company/cac:PartyIdentification/cbc:ID='{signatory_id}']/efac:Company/cac:PartyName/cbc:Name", 
+                    namespaces=self.parser.nsmap
+                )
                 if org_name:
-                    self.add_or_update_party(self.parties, {
-                        "id": signatory_id,
-                        "name": org_name,
-                    })
+                    org["name"] = org_name
+                contract_id = self.parser.find_text(signatory_party, './../../cbc:ID', namespaces=self.parser.nsmap)
                 for award in self.awards:
-                    if award["id"] == contract_id:
-                        award.setdefault("buyers", []).append({"id": signatory_id})                                                           
+                    if contract_id in award.get("relatedContracts", []):
+                        award.setdefault("buyers", []).append({"id": signatory_id})                                                         
 
     def fetch_bt712_complaints_statistics(self, root_element):
         notice_results = root_element.xpath(".//efac:NoticeResult", namespaces=self.parser.nsmap)
@@ -2444,26 +2444,6 @@ class TEDtoOCDSConverter:
         for role in roles:
             if role not in organization['roles']:
                 organization['roles'].append(role)
-
-    def fetch_opt_300_contract_signatory(self, root_element):
-        signatory_parties = root_element.findall(".//efac:NoticeResult/efac:SettledContract/cac:SignatoryParty", namespaces=self.parser.nsmap)
-        for signatory_party in signatory_parties:
-            signatory_id = self.parser.find_text(signatory_party, "./cac:PartyIdentification/cbc:ID", namespaces=self.parser.nsmap)
-            if signatory_id:
-                org = self.get_or_create_organization(self.parties, signatory_id)
-                if 'buyer' not in org['roles']:
-                    org['roles'].append('buyer')
-                org_name = self.parser.find_text(
-                    root_element, 
-                    f".//efac:Organization[efac:Company/cac:PartyIdentification/cbc:ID='{signatory_id}']/efac:Company/cac:PartyName/cbc:Name", 
-                    namespaces=self.parser.nsmap
-                )
-                if org_name:
-                    org["name"] = org_name
-                contract_id = self.parser.find_text(signatory_party, './../../cbc:ID', namespaces=self.parser.nsmap)
-                for award in self.awards:
-                    if contract_id in award.get("relatedContracts", []):
-                        award.setdefault("buyers", []).append({"id": signatory_id})
 
     def fetch_opt_320_lotresult_tender_reference(self, root_element):
         lot_results = root_element.findall(".//efac:NoticeResult/efac:LotResult", namespaces=self.parser.nsmap)
