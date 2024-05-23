@@ -2433,12 +2433,14 @@ class TEDtoOCDSConverter:
             if tender_id not in contract.get('relatedBids', []):
                 contract.setdefault('relatedBids', []).append(tender_id)
 
-    def add_supplier_to_award(self, award_id, supplier_id):
-        award = next((a for a in self.awards if a['id'] == award_id), None)
-        if award:
-            existing_supplier_ids = [s['id'] for s in award.get("suppliers", [])]
-            if supplier_id not in existing_supplier_ids:
-                award.setdefault("suppliers", []).append({"id": supplier_id})    
+    def add_supplier_to_award(self, contract_id, supplier_id):
+        awards = self.awards
+        for award in awards:
+            if contract_id in award.get("relatedContracts", []):
+                if "suppliers" not in award:
+                    award["suppliers"] = []
+                if supplier_id not in [s['id'] for s in award['suppliers']]:
+                    award["suppliers"].append({"id": supplier_id})    
 
     def fetch_bt660_framework_re_estimated_value(self, root_element):
         lot_results = root_element.findall(".//efac:NoticeResult/efac:LotResult", namespaces=self.parser.nsmap)
@@ -3062,7 +3064,26 @@ class TEDtoOCDSConverter:
                             "id": main_contractor_id
                         }
                         subcontract["mainContractors"].append(main_contractor_references)
+    def fetch_opt_320_contract_tender_reference(self, root_element):
+            # Fetch settled contract references to tender
+            settled_contracts = root_element.findall(".//efac:NoticeResult/efac:SettledContract", namespaces=self.parser.nsmap)
+            for contract in settled_contracts:
+                tender_id = self.parser.find_text(contract, "./efac:LotTender/cbc:ID", namespaces=self.parser.nsmap)
+                contract_id = self.parser.find_text(contract, "./cbc:ID", namespaces=self.parser.nsmap)
+                if tender_id and contract_id:
+                    self.add_or_update_contract_related_bids(contract_id, tender_id)
+                    self.handle_tendering_party(contract_id, tender_id)
 
+    def handle_tendering_party(self, contract_id, tender_id):
+        root = self.parser.root
+        tendering_party_id = self.parser.find_text(root, f".//efac:LotTender[cbc:ID='{tender_id}']/efac:TenderingParty/cbc:ID", namespaces=self.parser.nsmap)
+        if tendering_party_id:
+            tenderers = root.findall(f".//efac:TenderingParty[cbc:ID='{tendering_party_id}']//efac:Tenderer", namespaces=self.parser.nsmap)
+            for tenderer in tenderers:
+                tenderer_id = self.parser.find_text(tenderer, "./cbc:ID", namespaces=self.parser.nsmap)
+                if tenderer_id:
+                    self.update_party_roles(tenderer_id, ["supplier"])
+                    self.add_supplier_to_award(contract_id, tenderer_id)
 
     def convert_tender_to_ocds(self):
         root = self.parser.root
@@ -3225,7 +3246,6 @@ class TEDtoOCDSConverter:
         cleaned_release = self.clean_release_structure(release)
         logging.info('Conversion to OCDS format completed.')
         return cleaned_release
-
 
 def main(xml_file):
     logging.basicConfig(level=logging.DEBUG)
