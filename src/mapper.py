@@ -3209,7 +3209,7 @@ class TEDtoOCDSConverter:
 
         notice_uri = self.parser.find_text(root, ".//cbc:URI", namespaces=self.parser.nsmap)
         release = {
-            "id": self.parser.find_text(root, "./cbc:ID"),
+            "id": self.parser.find_text(root, ".//cbc:ID", namespaces=self.parser.nsmap),
             "ocid": ocid,
             "date": dispatch_datetime,
             "initiationType": "tender",
