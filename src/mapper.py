@@ -108,7 +108,7 @@ class TEDtoOCDSConverter:
                     stat_id += 1
 
     def fetch_bt09_cross_border_law(self, root_element):
-        cross_border_docs = root_element.xpath(".//cac:TenderingTerms/cac:ProcurementLegislationDocumentReference[cbc:ID='CrossBorderLaw']", namespaces=self.parser.nsmap)        
+        cross_border_docs = root_element.xpath(".//cac:TenderingTerms/cac:ProcurementLegislationDocumentReference[cbc:ID='CrossBorderLaw']", namespaces=self.parser.nsmap)
         for doc in cross_border_docs:
             law_description = self.parser.find_text(doc, "./cbc:DocumentDescription", namespaces=self.parser.nsmap)
             if law_description:
@@ -146,7 +146,6 @@ class TEDtoOCDSConverter:
         mapping = {
             "dps-nlist": "closed",
             "dps-openall": "open",
-            # Add other mappings as needed
         }
         return mapping.get(code, code)
     
@@ -196,10 +195,6 @@ class TEDtoOCDSConverter:
                         award.setdefault("buyers", []).append({"id": signatory_id})                                                           
 
     def fetch_bt712_complaints_statistics(self, root_element):
-        """
-        Fetches the LotResult complaints statistics for BT-712(a) (Code) and BT-712(b) (Number)
-        and includes them in the bids statistics.
-        """
         notice_results = root_element.xpath(".//efac:NoticeResult", namespaces=self.parser.nsmap)
         stat_id = len(self.tender["bids"]["statistics"]) + 1
 
@@ -221,6 +216,7 @@ class TEDtoOCDSConverter:
                             "relatedLot": lot_id
                         })
                         stat_id += 1
+
 
     def fetch_bt31_max_lots_submitted(self, root_element):
         """
@@ -1011,10 +1007,13 @@ class TEDtoOCDSConverter:
             contact_point["telephone"] = telephone
         if email:
             contact_point["email"] = email
-        
-        logger.debug(f"Extracted contact point: {contact_point}")
 
+        logger.debug(f"Extracted contact point: {contact_point}")
         return contact_point if contact_point else {}
+
+    def fetch_bt503_ubo_contact(self, ubo_element):
+        telephone = self.parser.find_text(ubo_element, "./cac:Contact/cbc:Telephone", namespaces=self.parser.nsmap)
+        return {"telephone": telephone} if telephone else {}
     
     def parse_organizations(self, element):
         organizations = []
@@ -1037,7 +1036,7 @@ class TEDtoOCDSConverter:
                 address = {
                     'locality': self.parser.find_text(org_element, './efac:Company/cac:PostalAddress/cbc:CityName', namespaces=self.parser.nsmap),
                     'postalCode': self.parser.find_text(org_element, './efac:Company/cac:PostalAddress/cbc:PostalZone', namespaces=self.parser.nsmap),
-                    'country': self.convert_language_code(self.parser.find_text(org_element, './efac:Company/cac:PostalAddress/cac:Country/cbc:IdentificationCode', namespaces=self.parser.nsmap), code_type='country'),
+                    'country': self.convert_language_code(self.parser.find_text(org_element, './efac:Company/cac:PostalAddress/cac:Country/cbc:IdentificationCode', namespaces=self.parser.nsmap), 'country'),
                     'region': self.parser.find_text(org_element, './efac:Company/cac:PostalAddress/cbc:CountrySubentityCode', namespaces=self.parser.nsmap)
                 }
 
@@ -1068,8 +1067,8 @@ class TEDtoOCDSConverter:
 
                     # Fetch and process nationality to avoid NoneType error
                     raw_nationality_code = self.parser.find_text(ubo_element, "./efac:Nationality/cbc:NationalityID", namespaces=self.parser.nsmap)
-                    processed_nationality_code = self.convert_language_code(raw_nationality_code, code_type='country') if raw_nationality_code else None
-                    
+                    processed_nationality_code = self.convert_language_code(raw_nationality_code, 'country') if raw_nationality_code else None
+
                     ubo_info = {
                         "id": ubo_id,
                         "name": full_name,
@@ -1078,7 +1077,7 @@ class TEDtoOCDSConverter:
                     phone_info = self.fetch_bt503_ubo_contact(ubo_element)
                     if phone_info:
                         ubo_info.update(phone_info)
-                    
+
                     organization.setdefault("beneficialOwners", []).append(ubo_info)
                     logging.debug(f"Updated organization with UBO: {organization}")
 
@@ -1086,10 +1085,6 @@ class TEDtoOCDSConverter:
     
     def fetch_bt503_touchpoint_contact(self, org_element):
         telephone = self.parser.find_text(org_element, "./efac:TouchPoint/cac:Contact/cbc:Telephone", namespaces=self.parser.nsmap)
-        return {"telephone": telephone} if telephone else {}
-
-    def fetch_bt503_ubo_contact(self, ubo_element):
-        telephone = self.parser.find_text(ubo_element, "./cac:Contact/cbc:Telephone", namespaces=self.parser.nsmap)
         return {"telephone": telephone} if telephone else {}
 
     def get_dispatch_date_time(self):
@@ -1333,75 +1328,6 @@ class TEDtoOCDSConverter:
         if 'details' in new_info and new_info['details']:
             organization['details'] = new_info['details']
 
-    def parse_organizations(self, element):
-        organizations = []
-        org_elements = element.findall(".//efac:Organization", namespaces=self.parser.nsmap)
-
-        for org_element in org_elements:
-            org_id = self.parser.find_text(org_element, "./efac:Company/cac:PartyIdentification/cbc:ID", namespaces=self.parser.nsmap)
-            if org_id:
-                logging.debug(f"Processing organization with ID: {org_id}")
-                organization = self.get_or_create_organization(organizations, org_id)
-                logging.debug(f"Retrieved organization: {organization}")
-
-                org_name = self.parser.find_text(org_element, "./efac:Company/cac:PartyName/cbc:Name", namespaces=self.parser.nsmap)
-                department = self.parser.find_text(org_element, "./efac:Company/cac:PostalAddress/cbc:Department", namespaces=self.parser.nsmap)
-                org_name_full = f"{org_name} - {department}" if department else org_name
-
-                contact_point = self.fetch_bt502_contact_point(org_element)
-                logging.debug(f"Extracted contact point: {contact_point}")
-                
-                address = {
-                    'locality': self.parser.find_text(org_element, './efac:Company/cac:PostalAddress/cbc:CityName', namespaces=self.parser.nsmap),
-                    'postalCode': self.parser.find_text(org_element, './efac:Company/cac:PostalAddress/cbc:PostalZone', namespaces=self.parser.nsmap),
-                    'country': self.convert_language_code(self.parser.find_text(org_element, './efac:Company/cac:PostalAddress/cac:Country/cbc:IdentificationCode', namespaces=self.parser.nsmap), code_type='country'),
-                    'region': self.parser.find_text(org_element, './efac:Company/cac:PostalAddress/cbc:CountrySubentityCode', namespaces=self.parser.nsmap)
-                }
-                
-                identifier = {
-                    'id': self.parser.find_text(org_element, './efac:Company/cac:PartyLegalEntity/cbc:CompanyID', namespaces=self.parser.nsmap),
-                    'scheme': 'GB-COH'
-                }
-
-                updated_info = {
-                    'roles': [],
-                    'name': org_name_full,
-                    'address': address,
-                    'identifier': identifier,
-                    'contactPoint': contact_point
-                }
-                
-                self.update_organization(organization, updated_info)
-                logging.debug(f"Updated organization info: {organization}")
-
-        for ubo_element in element.findall(".//efac:UltimateBeneficialOwner", namespaces=self.parser.nsmap):
-            ubo_id = self.parser.find_text(ubo_element, "./cbc:ID", namespaces=self.parser.nsmap)
-            if ubo_id:
-                logging.debug(f"Processing UBO with ID: {ubo_id}")
-                org_id = self.parser.find_text(ubo_element.getparent(), "./efac:Company/cac:PartyIdentification/cbc:ID", namespaces=self.parser.nsmap)
-                organization = self.get_or_create_organization(organizations, org_id)
-                
-                first_name = self.parser.find_text(ubo_element, './cbc:FirstName', namespaces=self.parser.nsmap) or ""
-                family_name = self.parser.find_text(ubo_element, './cbc:FamilyName', namespaces=self.parser.nsmap) or ""
-                full_name = f"{first_name} {family_name}".strip()
-
-                # Fetch and process nationality to avoid NoneType error
-                raw_nationality_code = self.parser.find_text(ubo_element, "./efac:Nationality/cbc:NationalityID", namespaces=self.parser.nsmap)
-                processed_nationality_code = self.convert_language_code(raw_nationality_code, code_type='country') if raw_nationality_code else None
-                
-                ubo_info = {
-                    "id": ubo_id,
-                    "name": full_name,
-                    "nationality": processed_nationality_code
-                }
-                phone_info = self.fetch_bt503_ubo_contact(ubo_element)
-                if phone_info:
-                    ubo_info.update(phone_info)
-                
-                organization.setdefault("beneficialOwners", []).append(ubo_info)
-                logging.debug(f"Updated organization with UBO: {organization}")
-
-        return organizations
     
     def gather_party_info(self, root_element):
         logger = logging.getLogger(__name__)
@@ -1635,34 +1561,46 @@ class TEDtoOCDSConverter:
     def parse_lots(self, element):
         lots = []
         lot_elements = element.findall(".//cac:ProcurementProjectLot", namespaces=self.parser.nsmap)
-        
+
         for lot_element in lot_elements:
-            lot_id = self.parser.find_text(lot_element, "./cbc:ID")  # Lot ID
-            lot_title = self.parser.find_text(lot_element, ".//cac:ProcurementProject/cbc:Name")  # Lot Title
+            lot_id = self.parser.find_text(lot_element, "./cbc:ID")
+            lot_title = self.parser.find_text(lot_element, ".//cac:ProcurementProject/cbc:Name")
             gpa_indicator = self.parser.find_text(lot_element, "./cac:TenderingProcess/cbc:GovernmentAgreementConstraintIndicator") == 'true'
             estimated_value_element = self.parser.find_node(lot_element, ".//cac:ProcurementProject/cac:RequestedTenderTotal/cbc:EstimatedOverallContractAmount")
-            
+
             lot = {
                 "id": lot_id,
                 "title": lot_title,
                 "description": self.parser.find_text(lot_element, ".//cac:ProcurementProject/cbc:Description"),
-                "mainProcurementCategory": self.parser.find_text(lot_element, ".//cac:ProcurementProject/cbc:ProcurementTypeCode[@listName='contract-nature']"),
-                "value": {
-                    "amount": float(estimated_value_element.text) if estimated_value_element is not None else None,
-                    "currency": estimated_value_element.get('currencyID') if estimated_value_element is not None else None
-                },
-                "coveredBy": ["GPA"] if gpa_indicator else None,
-                "items": self.parse_items(lot_element),
-                "reviewDetails": self.parser.find_text(lot_element, ".//cac:TenderingTerms/cac:AppealTerms/cac:SpecialTerms/cbc:Description"),
                 "awardCriteria": self.parse_award_criteria(lot_element),
+                "mainProcurementCategory": self.parser.find_text(lot_element, ".//cac:ProcurementProject/cbc:ProcurementTypeCode[@listName='contract-nature']"),
+                "reviewDetails": self.parser.find_text(lot_element, ".//cac:TenderingTerms/cac:AppealTerms/cac:SpecialTerms/cbc:Description"),
+                "coveredBy": ["GPA"] if gpa_indicator else None,
                 "techniques": {
                     "hasElectronicAuction": self.parser.find_text(lot_element, ".//cac:TenderingProcess/cac:AuctionTerms/cbc:AuctionConstraintIndicator") == 'true'
                 },
                 "identifiers": {
                     "id": self.parser.find_text(lot_element, ".//cbc:ID"),
                     "scheme": "internal"
-                }
+                },
+                "items": self.parse_items(lot_element)
             }
+            if estimated_value_element is not None:
+                lot["value"] = {
+                    "amount": float(estimated_value_element.text) if estimated_value_element.text else None,
+                    "currency": estimated_value_element.get('currencyID')
+                }
+
+            contract_period = self.parse_contract_period_for_lot(lot_element)
+            if contract_period:
+                lot['contractPeriod'] = contract_period
+
+            options_description = self.parser.find_text(lot_element, "./cac:ProcurementProject/cac:ContractExtension/cbc:OptionsDescription", namespaces=self.parser.nsmap)
+            if options_description:
+                lot['options'] = {"description": options_description}
+
+            self.process_lot_realized_location(lot_element, lot)
+
             lots.append(lot)
 
         return lots
@@ -1772,6 +1710,7 @@ class TEDtoOCDSConverter:
 
     def parse_award_criteria(self, lot_element):
         award_criteria = {
+            "weightingDescription": self.parser.find_text(lot_element, ".//cac:TenderingTerms/cac:AwardingTerms/cac:AwardingCriterion/cbc:CalculationExpression"),
             "criteria": []
         }
 
@@ -1780,17 +1719,14 @@ class TEDtoOCDSConverter:
         for criterion in criteria_elements:
             criterion_details = {}
 
-            # BT-539: Award Criterion Type
             criterion_type = self.parser.find_text(criterion, "./cbc:AwardingCriterionTypeCode[@listName='award-criterion-type']")
             if criterion_type:
                 criterion_details['type'] = criterion_type
 
-            # BT-540: Award Criterion Description
             criterion_description = self.parser.find_text(criterion, "./cbc:Description")
             if criterion_description:
                 criterion_details['description'] = criterion_description
 
-            # BT-541: Award Criterion Fixed Number, Threshold Number, Weight Number
             award_criterion_parameters = criterion.findall(".//ext:UBLExtensions/ext:UBLExtension/ext:ExtensionContent/efext:EformsExtension/efac:AwardCriterionParameter", namespaces=self.parser.nsmap)
             for param in award_criterion_parameters:
                 param_list_name = self.parser.find_attribute(param, ".//efbc:ParameterCode", "listName")
@@ -1808,7 +1744,6 @@ class TEDtoOCDSConverter:
 
                     criterion_details.setdefault('numbers', []).append(number_details)
 
-            # BT-734: Award Criterion Name
             criterion_name = self.parser.find_text(criterion, "./cbc:Name")
             if criterion_name:
                 criterion_details['name'] = criterion_name
@@ -1865,37 +1800,37 @@ class TEDtoOCDSConverter:
     def fetch_notice_language(self, root_element):
         notice_language_code = self.parser.find_text(root_element, ".//cbc:NoticeLanguageCode")
         if notice_language_code:
-            language_iso = self.convert_language_code(notice_language_code, code_type='language')
+            language_iso = self.convert_language_code(notice_language_code, 'language')
             return language_iso.lower() if language_iso else None
         return None
 
     def convert_language_code(self, code, code_type='language'):
         language_mapping = {
-            'ENG': 'en',  # English
-            'FRA': 'fr',  # French
-            'DEU': 'de',  # German
-            'ITA': 'it',  # Italian
-            'ESP': 'es',  # Spanish
-            'NLD': 'nl',  # Dutch
-            'BGR': 'bg',  # Bulgarian
-            'CES': 'cs',  # Czech
-            'DAN': 'da',  # Danish
-            'ELL': 'el',  # Greek
-            'EST': 'et',  # Estonian
-            'FIN': 'fi',  # Finnish
-            'HUN': 'hu',  # Hungarian
-            'HRV': 'hr',  # Croatian
-            'LAT': 'lv',  # Latvian
-            'LIT': 'lt',  # Lithuanian
-            'MLT': 'mt',  # Maltese
-            'POL': 'pl',  # Polish
-            'POR': 'pt',  # Portuguese
-            'RON': 'ro',  # Romanian
-            'SLK': 'sk',  # Slovak
-            'SLV': 'sl',  # Slovenian
-            'SWE': 'sv',  # Swedish
-            'NOR': 'no',  # Norwegian
-            'ISL': 'is'   # Icelandic
+            'ENG': 'en',
+            'FRA': 'fr',
+            'DEU': 'de',
+            'ITA': 'it',
+            'ESP': 'es',
+            'NLD': 'nl',
+            'BGR': 'bg',
+            'CES': 'cs',
+            'DAN': 'da',
+            'ELL': 'el',
+            'EST': 'et',
+            'FIN': 'fi',
+            'HUN': 'hu',
+            'HRV': 'hr',
+            'LAT': 'lv',
+            'LIT': 'lt',
+            'MLT': 'mt',
+            'POL': 'pl',
+            'POR': 'pt',
+            'RON': 'ro',
+            'SLK': 'sk',
+            'SLV': 'sl',
+            'SWE': 'sv',
+            'NOR': 'no',
+            'ISL': 'is'
         }
 
         if code_type == 'language':
@@ -3138,10 +3073,8 @@ class TEDtoOCDSConverter:
         form_type = self.get_form_type(root)
         self.parties = self.parse_organizations(root)
 
-        # Initialize bids and details
         self.tender.setdefault("bids", {}).setdefault("details", [])
 
-        # Fetch data
         try:
             self.fetch_bt710_bt711_bid_statistics(root)
             self.fetch_bt712_complaints_statistics(root)
@@ -3170,7 +3103,6 @@ class TEDtoOCDSConverter:
         except Exception as e:
             logging.error(f"Error fetching data: {e}")
 
-        # Parse and map the data
         try:
             language = self.fetch_notice_language(root)
             activities = self.parse_activity_authority(root)
@@ -3191,7 +3123,6 @@ class TEDtoOCDSConverter:
         except Exception as e:
             logging.error(f"Error processing data: {e}")
 
-        # Construct the tender object
         tender = {
             "id": self.parser.find_text(root, ".//cbc:ContractFolderID"),
             "status": form_type.get('tender_status', 'planned'),
