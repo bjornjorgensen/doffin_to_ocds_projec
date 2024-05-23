@@ -3089,7 +3089,7 @@ class TEDtoOCDSConverter:
 
     def convert_tender_to_ocds(self):
         root = self.parser.root
-        ocid = "ocds-" + str(uuid.uuid4())
+        ocid = "blah"  # Replace with actual ocid if available
         dispatch_datetime = self.get_dispatch_date_time()
         tender_title = self.parser.find_text(root, ".//cac:ProcurementProject/cbc:Name")
 
@@ -3185,47 +3185,9 @@ class TEDtoOCDSConverter:
             "procedureFeatures": procedure_features if procedure_features else None,
             "submissionMethod": ["electronicSubmission"],
             "items": items,
-            "classification": {"activities": activities} if activities else {},
+            "classification": {"activities": activities} if activities else None,
             "contractPeriod": self.parse_contract_period(root)
         }
-
-        unique_parties = {}
-        for party in self.parties:
-            if not party.get("id"):
-                logging.warning(f"Party without ID found, skipping: {party}")
-                continue
-            if party["id"] not in unique_parties:
-                unique_parties[party["id"]] = party
-            else:
-                existing_party = unique_parties[party["id"]]
-                for role in party.get('roles'):
-                    if role not in existing_party['roles']:
-                        existing_party['roles'].append(role)
-                for key, value in party.items():
-                    if key == "roles":
-                        continue
-                    elif isinstance(value, list):
-                        if key == "beneficialOwners":
-                            bo_ids = {bo["id"] for bo in existing_party[key]}
-                            for bo in value:
-                                if bo["id"] not in bo_ids:
-                                    existing_party[key].append(bo)
-                        else:
-                            existing_party[key].extend(value)
-                    elif isinstance(value, dict):
-                        existing_party.setdefault(key, {}).update(value)
-                    else:
-                        existing_party[key] = value
-
-        unique_parties = list(unique_parties.values())
-
-        for party in unique_parties:
-            roles = party.get('roles', [])
-            if 'buyer' in roles:
-                party.setdefault('details', {}).setdefault('classifications', []).extend(legal_types)
-            if "beneficialOwners" in party:
-                unique_bos = {bo["id"]: bo for bo in party["beneficialOwners"]}
-                party["beneficialOwners"] = list(unique_bos.values())
 
         notice_uri = self.parser.find_text(root, ".//cbc:URI", namespaces=self.parser.nsmap)
         release = {
@@ -3234,18 +3196,12 @@ class TEDtoOCDSConverter:
             "date": dispatch_datetime,
             "initiationType": "tender",
             "tag": form_type['tag'],
-            "parties": unique_parties,
+            "parties": self.parties,
             "language": language,
             "tender": tender,
             "relatedProcesses": related_processes,
             "awards": self.awards,
             "contracts": [],
-            "uri": notice_uri,
-            "planning": {
-                "budget": {
-                    "finance": self.budget_finances
-                }
-            } if self.budget_finances else None
         }
 
         if contracts := self.get_contracts():
@@ -3253,36 +3209,7 @@ class TEDtoOCDSConverter:
                 if 'dateSigned' in contract:
                     release["contracts"].append(contract)
 
-        unique_bids_dict = {bid['id']: bid for bid in self.tender["bids"]["details"]}
-        for bid in unique_bids_dict.values():
-            if 'suppliers' not in bid:
-                for award in release['awards']:
-                    if bid["id"] in award.get("relatedBids", []):
-                        if 'suppliers' in award:
-                            bid['suppliers'] = award['suppliers']
-
-        if "bids" in self.tender:
-            unique_bids = {}
-            for bid in self.tender["bids"]["details"]:
-                if bid["id"] not in unique_bids:
-                    unique_bids[bid["id"]] = bid
-                else:
-                    existing_bid = unique_bids[bid["id"]]
-                    for key, value in bid.items():
-                        if key in existing_bid and isinstance(existing_bid[key], list):
-                            if key == "tenderers":
-                                existing_tenderers = {t["id"] for t in existing_bid["tenderers"]}
-                                for t in value:
-                                    if t["id"] not in existing_tenderers:
-                                        existing_bid["tenderers"].append(t)
-                            else:
-                                existing_bid[key].extend(value)
-                        elif key in existing_bid and isinstance(existing_bid[key], dict):
-                            existing_bid[key].update(value)
-                        else:
-                            existing_bid[key] = value
-            self.tender["bids"]["details"] = list(unique_bids.values())
-            release['bids'] = self.tender["bids"]
+        release['bids'] = self.tender["bids"]
 
         cleaned_release = self.clean_release_structure(release)
         logging.info('Conversion to OCDS format completed.')
