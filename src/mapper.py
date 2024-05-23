@@ -1175,7 +1175,13 @@ class TEDtoOCDSConverter:
                     elif key == 'contactPoint':
                         party.setdefault('contactPoint', {}).update(value)
                     elif key == 'details':
-                        party.setdefault('details', {}).update(value)
+                        if 'classifications' in value:
+                            existing_classifs = party.setdefault('details', {}).setdefault('classifications', [])
+                            for new_classif in value['classifications']:
+                                if new_classif not in existing_classifs:
+                                    existing_classifs.append(new_classif)
+                        else:
+                            party.setdefault('details', {}).update(value)
                     elif key == 'address' and 'address' in party:
                         party['address'].update(value)
                     else:
@@ -2232,13 +2238,13 @@ class TEDtoOCDSConverter:
                     self.remove_schema_from_identifier(value)
         return data
     
-    def parse_classifications(self, root):
+    def parse_classifications(self, element):
         classifications = []
         items = []
         item_id = 1
 
         # Parse BT-26(a) Procedure Additional Classifications
-        additional_class_elements = root.findall(".//cac:ProcurementProject/cac:AdditionalCommodityClassification", namespaces=self.parser.nsmap)
+        additional_class_elements = element.findall(".//cac:ProcurementProject/cac:AdditionalCommodityClassification", namespaces=self.parser.nsmap)
         for element in additional_class_elements:
             scheme = self.parser.find_attribute(element, "./cbc:ItemClassificationCode", "listName").upper()
             code = self.parser.find_text(element, "./cbc:ItemClassificationCode").strip()
@@ -2248,7 +2254,7 @@ class TEDtoOCDSConverter:
             })
 
         # Parse BT-262 Procedure Main Classification
-        main_class_element = root.find(".//cac:ProcurementProject/cac:MainCommodityClassification", namespaces=self.parser.nsmap)
+        main_class_element = element.find(".//cac:ProcurementProject/cac:MainCommodityClassification", namespaces=self.parser.nsmap)
         if main_class_element is not None:
             scheme = self.parser.find_attribute(main_class_element, "./cbc:ItemClassificationCode", "listName").upper()
             code = self.parser.find_text(main_class_element, "./cbc:ItemClassificationCode").strip()
@@ -2259,10 +2265,9 @@ class TEDtoOCDSConverter:
                     "id": code
                 }
             })
-            item_id += 1
 
         # Parse BT-26(m) Lot Additional Classifications
-        lot_elements = root.findall(".//cac:ProcurementProjectLot", namespaces=self.parser.nsmap)
+        lot_elements = element.findall(".//cac:ProcurementProjectLot", namespaces=self.parser.nsmap)
         for lot_element in lot_elements:
             lot_id = self.parser.find_text(lot_element, "./cbc:ID", namespaces=self.parser.nsmap)
 
@@ -2278,7 +2283,6 @@ class TEDtoOCDSConverter:
                     },
                     "relatedLot": lot_id
                 })
-                item_id += 1
 
             # Parse BT-262 Lot Main Classification
             main_class_element = lot_element.find(".//cac:ProcurementProject/cac:MainCommodityClassification", namespaces=self.parser.nsmap)
@@ -2293,12 +2297,9 @@ class TEDtoOCDSConverter:
                     },
                     "relatedLot": lot_id
                 })
-                item_id += 1
 
-        return {
-            "classifications": classifications,
-            "items": items
-        }
+        return items
+
                     
     def fetch_opt_301_lot_mediator(self, root_element):
         # OPT-301-Lot-Mediator: Mediator Technical Identifier Reference
@@ -3209,7 +3210,7 @@ class TEDtoOCDSConverter:
             procedure_type = self.parse_procedure_type(root)
             procurement_method_rationale, procurement_method_rationale_classifications = self.parse_direct_award_justification(root)
             procedure_features = self.parse_procedure_features(root)
-            classifications_items = self.parse_classifications(root)
+            items = self.parse_classifications(root)
             related_processes = self.parse_related_processes(root)
 
             self.handle_bidding_documents(root)
@@ -3246,7 +3247,7 @@ class TEDtoOCDSConverter:
             "procedureFeatures": procedure_features if procedure_features else None,
             "submissionMethod": ["electronicSubmission"],
             "documents": self.tender.get("documents", []),
-            "items": classifications_items.get("items", []),
+            "items": items,
             "classification": {"activities": activities} if activities else {},      
         }
 
@@ -3259,13 +3260,13 @@ class TEDtoOCDSConverter:
                 unique_parties[party["id"]] = party
             else:
                 existing_party = unique_parties[party["id"]]
-                for role in party.get('roles', []):
+                for role in party.get('roles'):
                     if role not in existing_party['roles']:
                         existing_party['roles'].append(role)
                 for key, value in party.items():
-                    if key in ["roles", "id", "name"]:
+                    if key == "roles":
                         continue
-                    elif key in existing_party and isinstance(existing_party[key], list):
+                    elif isinstance(value, list):
                         if key == "beneficialOwners":
                             bo_ids = {bo["id"] for bo in existing_party[key]}
                             for bo in value:
@@ -3273,8 +3274,8 @@ class TEDtoOCDSConverter:
                                     existing_party[key].append(bo)
                         else:
                             existing_party[key].extend(value)
-                    elif key in existing_party and isinstance(existing_party[key], dict):
-                        existing_party[key].update(value)
+                    elif isinstance(value, dict):
+                        existing_party.setdefault(key, {}).update(value)
                     else:
                         existing_party[key] = value
         unique_parties = list(unique_parties.values())
@@ -3347,7 +3348,8 @@ def main(xml_file):
         
         release_info = converter.convert_tender_to_ocds()
         
-        result = json.dumps({"releases": [release_info]}, indent=2, ensure_ascii=False)
+        #result = json.dumps({"releases": [release_info]}, indent=2, ensure_ascii=False)
+        result = json.dumps(release_info, indent=2, ensure_ascii=False)
         print(result)
         
     except Exception as e:
