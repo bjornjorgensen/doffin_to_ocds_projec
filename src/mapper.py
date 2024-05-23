@@ -1981,71 +1981,6 @@ class TEDtoOCDSConverter:
                 break
         if not found:
             self.awards.append(new_award)
-#should this be removed?
-    def parse_classifications(self, root):
-        classifications = []
-        items = []
-        item_id = 1
-
-        # Parse BT-26(a) Procedure Additional Classifications
-        additional_class_elements = root.findall(".//cac:ProcurementProject/cac:AdditionalCommodityClassification", namespaces=self.parser.nsmap)
-        for element in additional_class_elements:
-            scheme = self.parser.find_attribute(element, "./cbc:ItemClassificationCode", "listName").upper()
-            code = self.parser.find_text(element, "./cbc:ItemClassificationCode").strip()
-            classifications.append({
-                "scheme": scheme,
-                "id": code
-            })
-
-        # Parse BT-262 Procedure Main Classification
-        main_class_element = root.find(".//cac:ProcurementProject/cac:MainCommodityClassification", namespaces=self.parser.nsmap)
-        if main_class_element is not None:
-            scheme = self.parser.find_attribute(main_class_element, "./cbc:ItemClassificationCode", "listName").upper()
-            code = self.parser.find_text(main_class_element, "./cbc:ItemClassificationCode").strip()
-            items.append({
-                "id": str(item_id),
-                "classification": {
-                    "scheme": scheme,
-                    "id": code
-                }
-            })
-            item_id += 1
-
-        # Parse BT-26(m) Lot Additional Classifications
-        lot_elements = root.findall(".//cac:ProcurementProjectLot", namespaces=self.parser.nsmap)
-        for lot_element in lot_elements:
-            lot_id = self.parser.find_text(lot_element, "./cbc:ID", namespaces=self.parser.nsmap)
-
-            additional_class_elements = lot_element.findall(".//cac:ProcurementProject/cac:AdditionalCommodityClassification", namespaces=self.parser.nsmap)
-            for element in additional_class_elements:
-                scheme = self.parser.find_attribute(element, "./cbc:ItemClassificationCode", "listName").upper()
-                code = self.parser.find_text(element, "./cbc:ItemClassificationCode").strip()
-                items.append({
-                    "id": str(item_id),
-                    "classification": {
-                        "scheme": scheme,
-                        "id": code
-                    },
-                    "relatedLot": lot_id
-                })
-                item_id += 1
-
-            # Parse BT-262 Lot Main Classification
-            main_class_element = lot_element.find(".//cac:ProcurementProject/cac:MainCommodityClassification", namespaces=self.parser.nsmap)
-            if main_class_element is not None:
-                scheme = self.parser.find_attribute(main_class_element, "./cbc:ItemClassificationCode", "listName").upper()
-                code = self.parser.find_text(main_class_element, "./cbc:ItemClassificationCode").strip()
-                items.append({
-                    "id": str(item_id),
-                    "classification": {
-                        "scheme": scheme,
-                        "id": code
-                    },
-                    "relatedLot": lot_id
-                })
-                item_id += 1
-
-        return items
     
     def parse_items(self, lot_element):
         items = []
@@ -2060,70 +1995,6 @@ class TEDtoOCDSConverter:
             })
         return items
 
-    def parse_classifications(self, root):
-        classifications = []
-        items = []
-        item_id = 1
-
-        # Parse BT-26(a) Procedure Additional Classifications
-        additional_class_elements = root.findall(".//cac:ProcurementProject/cac:AdditionalCommodityClassification", namespaces=self.parser.nsmap)
-        for element in additional_class_elements:
-            scheme = self.parser.find_attribute(element, "./cbc:ItemClassificationCode", "listName").upper()
-            code = self.parser.find_text(element, "./cbc:ItemClassificationCode").strip()
-            classifications.append({
-                "scheme": scheme,
-                "id": code
-            })
-
-        # Parse BT-262 Procedure Main Classification
-        main_class_element = root.find(".//cac:ProcurementProject/cac:MainCommodityClassification", namespaces=self.parser.nsmap)
-        if main_class_element is not None:
-            scheme = self.parser.find_attribute(main_class_element, "./cbc:ItemClassificationCode", "listName").upper()
-            code = self.parser.find_text(main_class_element, "./cbc:ItemClassificationCode").strip()
-            items.append({
-                "id": str(item_id),
-                "classification": {
-                    "scheme": scheme,
-                    "id": code
-                }
-            })
-            item_id += 1
-
-        # Parse BT-26(m) Lot Additional Classifications
-        lot_elements = root.findall(".//cac:ProcurementProjectLot", namespaces=self.parser.nsmap)
-        for lot_element in lot_elements:
-            lot_id = self.parser.find_text(lot_element, "./cbc:ID", namespaces=self.parser.nsmap)
-
-            additional_class_elements = lot_element.findall(".//cac:ProcurementProject/cac:AdditionalCommodityClassification", namespaces=self.parser.nsmap)
-            for element in additional_class_elements:
-                scheme = self.parser.find_attribute(element, "./cbc:ItemClassificationCode", "listName").upper()
-                code = self.parser.find_text(element, "./cbc:ItemClassificationCode").strip()
-                items.append({
-                    "id": str(item_id),
-                    "classification": {
-                        "scheme": scheme,
-                        "id": code
-                    },
-                    "relatedLot": lot_id
-                })
-                item_id += 1
-
-            # Parse BT-262 Lot Main Classification
-            main_class_element = lot_element.find(".//cac:ProcurementProject/cac:MainCommodityClassification", namespaces=self.parser.nsmap)
-            if main_class_element is not None:
-                scheme = self.parser.find_attribute(main_class_element, "./cbc:ItemClassificationCode", "listName").upper()
-                code = self.parser.find_text(main_class_element, "./cbc:ItemClassificationCode").strip()
-                items.append({
-                    "id": str(item_id),
-                    "classification": {
-                        "scheme": scheme,
-                        "id": code
-                    },
-                    "relatedLot": lot_id
-                })
-                item_id += 1
-
-        return items
 
     def fetch_bt300_additional_info(self, root):
         # Path to extract the additional information as per BT-300
@@ -2428,7 +2299,6 @@ class TEDtoOCDSConverter:
             "classifications": classifications,
             "items": items
         }
-
                     
     def fetch_opt_301_lot_mediator(self, root_element):
         # OPT-301-Lot-Mediator: Mediator Technical Identifier Reference
@@ -2658,7 +2528,7 @@ class TEDtoOCDSConverter:
         if award:
             existing_supplier_ids = [s['id'] for s in award.get("suppliers", [])]
             if supplier_id not in existing_supplier_ids:
-                award.setdefault("suppliers", []).append({"id": supplier_id})       
+                award.setdefault("suppliers", []).append({"id": supplier_id})    
 
     def fetch_bt660_framework_re_estimated_value(self, root_element):
         lot_results = root_element.findall(".//efac:NoticeResult/efac:LotResult", namespaces=self.parser.nsmap)
@@ -3197,6 +3067,93 @@ class TEDtoOCDSConverter:
 
                 self.tender["bids"]["details"].append(bid)
 
+    def fetch_opt_310_tendering_party_id(self, root_element):
+        tender_detail_mapping = {}
+        notice_results = root_element.xpath(".//efac:NoticeResult", namespaces=self.parser.nsmap)
+        for notice_result in notice_results:
+            lot_tenders = notice_result.xpath(".//efac:LotTender", namespaces=self.parser.nsmap)
+            for lot_tender in lot_tenders:
+                tender_id = self.parser.find_text(lot_tender, "cbc:ID")
+                tendering_party_id = self.parser.find_text(lot_tender, "efac:TenderingParty/cbc:ID")
+                if tender_id and tendering_party_id:
+                    tender_detail_mapping[tender_id] = tendering_party_id
+
+        for tender_id, tendering_party_id in tender_detail_mapping.items():
+            tendering_party = self.parser.find_node(root_element, f".//efac:TenderingParty[cbc:ID='{tendering_party_id}']", namespaces=self.parser.nsmap)
+            tenderers = tendering_party.findall(".//efac:Tenderer", namespaces=self.parser.nsmap)
+
+            for tenderer in tenderers:
+                tenderer_id = self.parser.find_text(tenderer, "cbc:ID")
+                if tenderer_id:
+                    self.add_or_update_party(self.parties, {
+                        "id": tenderer_id,
+                        "roles": ["tenderer"]
+                    })
+                    self.add_or_update_bid_tenderers(tender_id, tenderer_id)
+
+    def add_or_update_bid_tenderers(self, bid_id, tenderer_id):
+        bid = next((b for b in self.tender["bids"]["details"] if b["id"] == bid_id), None)
+        if bid:
+            bid.setdefault("tenderers", []).append({"id": tenderer_id})
+        else:
+            self.tender["bids"]["details"].append({
+                "id": bid_id,
+                "tenderers": [{"id": tenderer_id}]
+            })
+
+    def fetch_opt_301_tenderer_maincont(self, root_element):
+        notice_results = root_element.findall(".//efac:NoticeResult", namespaces=self.parser.nsmap)
+        for notice_result in notice_results:
+            lot_tenders = notice_result.findall(".//efac:LotTender", namespaces=self.parser.nsmap)
+            for lot_tender in lot_tenders:
+                tender_id = self.parser.find_text(lot_tender, "./cbc:ID", namespaces=self.parser.nsmap)
+                subcontractors = lot_tender.findall(".//efac:SubContractor", namespaces=self.parser.nsmap)
+                for subcontractor in subcontractors:
+                    subcontractor_id = self.parser.find_text(subcontractor, "./cbc:ID", namespaces=self.parser.nsmap)
+                    main_contractors = subcontractor.findall(".//efac:MainContractor", namespaces=self.parser.nsmap)
+                    for main_contractor in main_contractors:
+                        main_contractor_id = self.parser.find_text(main_contractor, "./cbc:ID", namespaces=self.parser.nsmap)
+
+                        if main_contractor_id:
+                            main_contractor_org = next((o for o in self.parties if o['id'] == main_contractor_id), None)
+                            if not main_contractor_org:
+                                main_contractor_org = {
+                                    "id": main_contractor_id,
+                                    "roles": ["tenderer"]
+                                }
+                                self.parties.append(main_contractor_org)
+                            else:
+                                if "tenderer" not in main_contractor_org.get('roles', []):
+                                    main_contractor_org['roles'].append("tenderer")
+
+                        bid = next((b for b in self.tender["bids"]["details"] if b['id'] == tender_id), None)
+                        if not bid:
+                            bid = {
+                                "id": tender_id,
+                                "subcontracting": {
+                                    "subcontracts": []
+                                }
+                            }
+                            self.tender["bids"]["details"].append(bid)
+
+                        subcontract = next((s for s in bid["subcontracting"]["subcontracts"]
+                                            if s["subcontractor"]["id"] == subcontractor_id), None)
+                        if not subcontract:
+                            subcontract = {
+                                "id": str(len(bid["subcontracting"]["subcontracts"]) + 1),
+                                "subcontractor": {
+                                    "id": subcontractor_id
+                                },
+                                "mainContractors": []
+                            }
+                            bid["subcontracting"]["subcontracts"].append(subcontract)
+
+                        main_contractor_references = {
+                            "id": main_contractor_id
+                        }
+                        subcontract["mainContractors"].append(main_contractor_references)
+
+
     def convert_tender_to_ocds(self):
         root = self.parser.root
         ocid = "ocds-" + str(uuid.uuid4())
@@ -3233,7 +3190,10 @@ class TEDtoOCDSConverter:
             self.handle_bt14_and_bt707(root)
             self.fetch_opp_050_buyers_group_lead(root)
             self.fetch_opt_300_contract_signatory(root)
+            self.fetch_opt_301_tenderer_maincont(root)
             self.fetch_bt773_subcontracting(root)
+            self.fetch_opt_310_tendering_party_id(root)
+            self.fetch_bt3202_contract_tender_reference(root)
         except Exception as e:
             logging.error(f"Error fetching data: {e}")
 
@@ -3249,7 +3209,7 @@ class TEDtoOCDSConverter:
             procedure_type = self.parse_procedure_type(root)
             procurement_method_rationale, procurement_method_rationale_classifications = self.parse_direct_award_justification(root)
             procedure_features = self.parse_procedure_features(root)
-            classifications = self.parse_classifications(root)
+            classifications_items = self.parse_classifications(root)
             related_processes = self.parse_related_processes(root)
 
             self.handle_bidding_documents(root)
@@ -3269,13 +3229,13 @@ class TEDtoOCDSConverter:
         # Construct the tender object
         tender = {
             "id": self.parser.find_text(root, ".//cbc:ContractFolderID"),
-            "status": form_type['tender_status'],
+            "status": form_type.get('tender_status', 'planned'),
             "title": tender_title,
             "description": additional_info,
             "legalBasis": legal_basis,
             "lots": lots,
-            "lotGroups": [] if aggregated_part_value else None,
-            "awardCriteria" :{
+            "lotGroups": [{"maximumValue": aggregated_part_value}] if aggregated_part_value else None,
+            "awardCriteria": {
                 "criteria": [criterion for lot in lots for criterion in lot.get('awardCriteria', {}).get('criteria', [])]
             } if award_criteria_found else None,
             "procurementMethod": procedure_type["method"] if procedure_type else None,
@@ -3286,9 +3246,8 @@ class TEDtoOCDSConverter:
             "procedureFeatures": procedure_features if procedure_features else None,
             "submissionMethod": ["electronicSubmission"],
             "documents": self.tender.get("documents", []),
-            "items": classifications.get("items", []),
-            # Add activities under the 'classification' field
-            "classification": {"activities": activities} if activities else None
+            "items": classifications_items.get("items", []),
+            "classification": {"activities": activities} if activities else {},      
         }
 
         unique_parties = {}
@@ -3324,7 +3283,6 @@ class TEDtoOCDSConverter:
             roles = party.get('roles', [])
             if 'buyer' in roles:
                 party.setdefault('details', {}).setdefault('classifications', []).extend(legal_types)
-
             if "beneficialOwners" in party:
                 unique_bos = {bo["id"]: bo for bo in party["beneficialOwners"]}
                 party["beneficialOwners"] = list(unique_bos.values())
