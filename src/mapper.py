@@ -1150,32 +1150,6 @@ class TEDtoOCDSConverter:
 
         return legal_basis
 
-    def add_or_update_party(self, parties, party_info):
-        for party in parties:
-            if party['id'] == party_info['id']:
-                for key, value in party_info.items():
-                    if key == 'roles':
-                        if 'roles' in party:
-                            party['roles'] = list(set(party['roles'] + value))
-                        else:
-                            party['roles'] = value
-                    elif key == 'contactPoint':
-                        party.setdefault('contactPoint', {}).update(value)
-                    elif key == 'details':
-                        if 'classifications' in value:
-                            existing_classifs = party.setdefault('details', {}).setdefault('classifications', [])
-                            for new_classif in value['classifications']:
-                                if new_classif not in existing_classifs:
-                                    existing_classifs.append(new_classif)
-                        else:
-                            party.setdefault('details', {}).update(value)
-                    elif key == 'address' and 'address' in party:
-                        party['address'].update(value)
-                    else:
-                        party[key] = value
-                return
-        parties.append(party_info)
-
     def fetch_bt506_emails(self, root_element):
         for org_element in root_element.findall(".//efac:Organization", namespaces=self.parser.nsmap):
             org_id = self.parser.find_text(org_element, "./efac:Company/cac:PartyIdentification/cbc:ID", namespaces=self.parser.nsmap)
@@ -1319,89 +1293,6 @@ class TEDtoOCDSConverter:
         
         if 'details' in new_info and new_info['details']:
             organization['details'] = new_info['details']
-
-    
-    def gather_party_info(self, root_element):
-        logger = logging.getLogger(__name__)
-        parties = []
-
-        def add_or_update_party(existing_parties, new_party):
-            existing_party = next((p for p in existing_parties if p['id'] == new_party['id']), None)
-            if existing_party:
-                for role in new_party.get('roles', []):
-                    if role not in existing_party['roles']:
-                        existing_party['roles'].append(role)
-                for key, value in new_party.items():
-                    if key == 'roles':
-                        continue
-                    elif isinstance(value, list):
-                        existing_party.setdefault(key, []).extend(value)
-                    elif isinstance(value, dict):
-                        existing_party.setdefault(key, {}).update(value)
-                    else:
-                        existing_party[key] = value
-            else:
-                existing_parties.append(new_party)
-
-        for org_element in root_element.findall(".//efac:Organizations/efac:Organization", namespaces=self.parser.nsmap):
-            org_id = self.parser.find_text(org_element, "./efac:Company/cac:PartyIdentification/cbc:ID", namespaces=self.parser.nsmap)
-            if org_id:
-                org_info = {"id": org_id, "roles": [], "details": {}, "address": {}, "identifier": {}}
-                name = self.parser.find_text(org_element, "./efac:Company/cac:PartyName/cbc:Name", namespaces=self.parser.nsmap)
-                if name:
-                    org_info["name"] = name
-                
-                contact_info = self.fetch_bt502_contact_point(org_element)
-                if contact_info:
-                    org_info["contactPoint"] = contact_info
-
-                touchpoint_contact = self.fetch_bt503_touchpoint_contact(org_element)
-                if touchpoint_contact:
-                    org_info.setdefault('contactPoint', {}).update(touchpoint_contact)
-
-                company_id = self.parser.find_text(org_element, "./efac:Company/cac:PartyLegalEntity/cbc:CompanyID", namespaces=self.parser.nsmap)
-                if company_id:
-                    org_info.setdefault("identifier", {})
-                    org_info["identifier"]["id"] = company_id
-                    org_info["identifier"]["scheme"] = "GB-COH"
-
-                address = org_element.find('./efac:Company/cac:PostalAddress', namespaces=self.parser.nsmap)
-                if address is not None:
-                    org_info['address'] = {
-                        "streetAddress": self.process_street_address(address, self.parser.nsmap),
-                        "locality": self.parser.find_text(address, './cbc:CityName', namespaces=self.parser.nsmap),
-                        "region": self.parser.find_text(address, './cbc:CountrySubentity', namespaces=self.parser.nsmap),
-                        "postalCode": self.parser.find_text(address, './cbc:PostalZone', namespaces=self.parser.nsmap),
-                        "country": self.convert_language_code(self.parser.find_text(address, './cac:Country/cbc:IdentificationCode', namespaces=self.parser.nsmap), code_type='country')
-                    }
-
-                add_or_update_party(parties, org_info)
-            else:
-                logger.warning('Party element found without an ID or Name!')
-
-        for ubo_element in root_element.findall(".//efac:UltimateBeneficialOwner", namespaces=self.parser.nsmap):
-            ubo_id = self.parser.find_text(ubo_element, "./cbc:ID", namespaces=self.parser.nsmap)
-            if ubo_id:
-                org_id = self.parser.find_text(ubo_element.getparent(), "./efac:Company/cac:PartyIdentification/cbc:ID", namespaces=self.parser.nsmap)
-                organization = self.get_or_create_organization(parties, org_id)
-                ubo_info = {"id": ubo_id}
-
-                family_name = self.parser.find_text(ubo_element, "./cbc:FamilyName", namespaces=self.parser.nsmap)
-                first_name = self.parser.find_text(ubo_element, "./cbc:FirstName", namespaces=self.parser.nsmap)
-                ubo_info["name"] = f"{first_name} {family_name}".strip() if family_name or first_name else "Unknown Beneficial Owner"
-
-                ubo_address = ubo_element.find('./cac:PostalAddress', namespaces=self.parser.nsmap)
-                if ubo_address is not None:
-                    ubo_info['address'] = self.process_ubo_address(ubo_address)
-
-                phone_info = self.fetch_bt503_ubo_contact(ubo_element)
-                if phone_info:
-                    ubo_info.update(phone_info)
-
-                organization.setdefault('beneficialOwners', []).append(ubo_info)
-                add_or_update_party(parties, organization)
-
-        return parties
     
     def process_ubo_address(self, address_element):
         country_element = self.parser.find_text(address_element, './cac:Country/cbc:IdentificationCode', namespaces=self.parser.nsmap)
@@ -3114,6 +3005,89 @@ class TEDtoOCDSConverter:
                         # Set to selfEmployed if the indicator is true
                         organization = self.get_or_create_organization(self.parties, org_id)
                         organization.setdefault("details", {})["scale"] = "selfEmployed"      
+
+    def gather_party_info(self, root_element):
+        logger = logging.getLogger(__name__)
+        parties = []
+
+        def add_or_update_party(existing_parties, new_party):
+            existing_party = next((p for p in existing_parties if p['id'] == new_party['id']), None)
+            if existing_party:
+                for role in new_party.get('roles', []):
+                    if role not in existing_party['roles']:
+                        existing_party['roles'].append(role)
+                for key, value in new_party.items():
+                    if key == 'roles':
+                        continue
+                    elif isinstance(value, list):
+                        existing_party.setdefault(key, []).extend(value)
+                    elif isinstance(value, dict):
+                        existing_party.setdefault(key, {}).update(value)
+                    else:
+                        existing_party[key] = value
+            else:
+                existing_parties.append(new_party)
+
+        org_elements = root_element.findall(".//efac:Organizations/efac:Organization", namespaces=self.parser.nsmap)
+        for org_element in org_elements:
+            org_id = self.parser.find_text(org_element, "./efac:Company/cac:PartyIdentification/cbc:ID", namespaces=self.parser.nsmap)
+            if org_id:
+                org_info = {
+                    "id": org_id,
+                    "roles": [],
+                    "details": {},
+                    "address": {},
+                    "identifier": {}
+                }
+                name = self.parser.find_text(org_element, "./efac:Company/cac:PartyName/cbc:Name", namespaces=self.parser.nsmap)
+                department = self.parser.find_text(org_element, "./efac:Company/cac:PostalAddress/cbc:Department", namespaces=self.parser.nsmap)
+                if name:
+                    org_info["name"] = f"{name} - {department}" if department else name
+
+                contact_info = self.fetch_bt502_contact_point(org_element)
+                if contact_info:
+                    org_info["contactPoint"] = contact_info
+
+                company_id = self.parser.find_text(org_element, "./efac:Company/cac:PartyLegalEntity/cbc:CompanyID", namespaces=self.parser.nsmap)
+                if company_id:
+                    org_info.setdefault("identifier", {})
+                    org_info["identifier"]["id"] = company_id
+                    org_info["identifier"]["scheme"] = "GB-COH"
+
+                address = org_element.find('./efac:Company/cac:PostalAddress', namespaces=self.parser.nsmap)
+                if address:
+                    org_info['address'] = {
+                        "streetAddress": self.process_street_address(address, self.parser.nsmap),
+                        "locality": self.parser.find_text(address, './cbc:CityName', namespaces=self.parser.nsmap),
+                        "region": self.parser.find_text(address, './cbc:CountrySubentity', namespaces=self.parser.nsmap),
+                        "postalCode": self.parser.find_text(address, './cbc:PostalZone', namespaces=self.parser.nsmap),
+                        "country": self.convert_language_code(self.parser.find_text(address, './cac:Country/cbc:IdentificationCode', namespaces=self.parser.nsmap), code_type='country')
+                    }
+
+                add_or_update_party(parties, org_info)
+            else:
+                logger.warning('Party element found without an ID or Name!')
+
+        for ubo_element in root_element.findall(".//efac:UltimateBeneficialOwner", namespaces=self.parser.nsmap):
+            ubo_id = self.parser.find_text(ubo_element, "./cbc:ID", namespaces=self.parser.nsmap)
+            if ubo_id:
+                org_id = self.parser.find_text(ubo_element.getparent(), "./efac:Company/cac:PartyIdentification/cbc:ID", namespaces=self.parser.nsmap)
+                organization = self.get_or_create_organization(parties, org_id)
+                ubo_info = {"id": ubo_id}
+                family_name = self.parser.find_text(ubo_element, "./cbc:FamilyName", namespaces=self.parser.nsmap)
+                first_name = self.parser.find_text(ubo_element, "./cbc:FirstName", namespaces=self.parser.nsmap)
+                ubo_info["name"] = f"{first_name} {family_name}".strip() if family_name or first_name else "Unknown Beneficial Owner"
+                phone_info = self.fetch_bt503_ubo_contact(ubo_element)
+                if phone_info:
+                    ubo_info.update(phone_info)
+                ubo_address = ubo_element.find('./cac:PostalAddress', namespaces=self.parser.nsmap)
+                if ubo_address:
+                    ubo_info['address'] = self.process_ubo_address(ubo_address)
+
+                organization.setdefault('beneficialOwners', []).append(ubo_info)
+                add_or_update_party(parties, organization)
+
+        return parties
 
     def convert_tender_to_ocds(self):
         root = self.parser.root
