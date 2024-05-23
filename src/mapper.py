@@ -3026,6 +3026,9 @@ class TEDtoOCDSConverter:
                     existing_party.setdefault(key, {}).update(value)
                 else:
                     existing_party[key] = value
+            # Ensure unique additionalIdentifiers
+            if 'additionalIdentifiers' in existing_party:
+                existing_party['additionalIdentifiers'] = list({v['id']: v for v in existing_party['additionalIdentifiers']}.values())
         else:
             parties.append(new_party)
 
