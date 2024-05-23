@@ -936,7 +936,8 @@ class TEDtoOCDSConverter:
 
                 company_id = self.parser.find_text(org_element, "./efac:Company/cac:PartyLegalEntity/cbc:CompanyID", namespaces=self.parser.nsmap)
                 if company_id:
-                    organization.setdefault("additionalIdentifiers", []).append({"id": company_id, "scheme": "CompanyID"})
+                    if not any(identifier['id'] == company_id for identifier in organization.get("additionalIdentifiers", [])):
+                        organization.setdefault("additionalIdentifiers", []).append({"id": company_id, "scheme": "CompanyID"})
 
                 address_element = org_element.find('./efac:Company/cac:PostalAddress', namespaces=self.parser.nsmap)
                 if address_element is not None:
