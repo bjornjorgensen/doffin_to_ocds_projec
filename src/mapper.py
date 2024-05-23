@@ -2434,13 +2434,13 @@ class TEDtoOCDSConverter:
                 contract.setdefault('relatedBids', []).append(tender_id)
 
     def add_supplier_to_award(self, contract_id, supplier_id):
-        awards = self.awards
-        for award in awards:
-            if contract_id in award.get("relatedContracts", []):
-                if "suppliers" not in award:
-                    award["suppliers"] = []
-                if supplier_id not in [s['id'] for s in award['suppliers']]:
-                    award["suppliers"].append({"id": supplier_id})    
+        for award in self.awards:
+            for contract in award.get('contracts', []):
+                if contract['id'] == contract_id:
+                    if 'suppliers' not in award:
+                        award['suppliers'] = []
+                    if not any(s['id'] == supplier_id for s in award['suppliers']):
+                        award['suppliers'].append({'id': supplier_id})
 
     def fetch_bt660_framework_re_estimated_value(self, root_element):
         lot_results = root_element.findall(".//efac:NoticeResult/efac:LotResult", namespaces=self.parser.nsmap)
@@ -3065,14 +3065,14 @@ class TEDtoOCDSConverter:
                         }
                         subcontract["mainContractors"].append(main_contractor_references)
     def fetch_opt_320_contract_tender_reference(self, root_element):
-            # Fetch settled contract references to tender
-            settled_contracts = root_element.findall(".//efac:NoticeResult/efac:SettledContract", namespaces=self.parser.nsmap)
-            for contract in settled_contracts:
-                tender_id = self.parser.find_text(contract, "./efac:LotTender/cbc:ID", namespaces=self.parser.nsmap)
-                contract_id = self.parser.find_text(contract, "./cbc:ID", namespaces=self.parser.nsmap)
-                if tender_id and contract_id:
-                    self.add_or_update_contract_related_bids(contract_id, tender_id)
-                    self.handle_tendering_party(contract_id, tender_id)
+        # Fetch settled contract references to tender
+        settled_contracts = root_element.findall(".//efac:NoticeResult/efac:SettledContract", namespaces=self.parser.nsmap)
+        for contract in settled_contracts:
+            tender_id = self.parser.find_text(contract, "./efac:LotTender/cbc:ID", namespaces=self.parser.nsmap)
+            contract_id = self.parser.find_text(contract, "./cbc:ID", namespaces=self.parser.nsmap)
+            if tender_id and contract_id:
+                self.add_or_update_contract_related_bids(contract_id, tender_id)
+                self.handle_tendering_party(contract_id, tender_id)
 
     def handle_tendering_party(self, contract_id, tender_id):
         root = self.parser.root
@@ -3120,7 +3120,7 @@ class TEDtoOCDSConverter:
             self.fetch_opt_301_tenderer_maincont(root)
             self.fetch_bt773_subcontracting(root)
             self.fetch_opt_310_tendering_party_id(root)
-            self.fetch_bt3202_contract_tender_reference(root)
+            self.fetch_opt_320_contract_tender_reference(root)
         except Exception as e:
             logging.error(f"Error fetching data: {e}")
 
@@ -3211,7 +3211,7 @@ class TEDtoOCDSConverter:
             "tender": tender,
             "relatedProcesses": related_processes,
             "awards": self.awards,
-            "contracts": [{"dateSigned": self.get_contract_signed_date()}] if self.get_contract_signed_date() else [],
+            "contracts": [],
             "uri": notice_uri,
             "planning": {
                 "budget": {
@@ -3219,6 +3219,11 @@ class TEDtoOCDSConverter:
                 }
             } if self.budget_finances else None
         }
+
+        if contracts := self.get_contracts():
+            for contract in contracts:
+                if 'dateSigned' in contract:
+                    release["contracts"].append(contract)
 
         if "bids" in self.tender:
             unique_bids = {}
