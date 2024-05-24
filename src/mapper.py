@@ -274,9 +274,6 @@ class TEDtoOCDSConverter:
                         self.add_or_update_contract(contract_id, {"publicPassengerTransportServicesKilometers": int(distance)})
 
     def fetch_bt60_lot_funding(self, root_element):
-        """
-        Fetches BT-60: The procurement is at least partially financed by Union funds.
-        """
         lots = root_element.findall(".//cac:ProcurementProjectLot", namespaces=self.parser.nsmap)
         for lot in lots:
             funding_program_code = self.parser.find_text(lot, ".//cbc:FundingProgramCode[@listName='eu-funded']", namespaces=self.parser.nsmap)
@@ -461,9 +458,6 @@ class TEDtoOCDSConverter:
                 organization['name'] = f"{org_name} - {department}" if department else org_name
 
     def fetch_bt47_participants(self, root_element):
-        """
-        Fetch BT-47: Lot Participants and map to selectedParticipants array.
-        """
         lots = root_element.findall(".//cac:ProcurementProjectLot", namespaces=self.parser.nsmap)
         for lot in lots:
             lot_id = self.parser.find_text(lot, "./cbc:ID")
@@ -614,7 +608,6 @@ class TEDtoOCDSConverter:
                 "id": org_id,
                 "roles": ["leadBuyer"]
             })
-        return {}
 
     def fetch_opp_051_awarding_cpb_buyer(self, root_element):
         parties = root_element.findall(".//efac:Organization", namespaces=self.parser.nsmap)
@@ -2115,7 +2108,6 @@ class TEDtoOCDSConverter:
 
                     
     def fetch_opt_301_lot_mediator(self, root_element):
-        # OPT-301-Lot-Mediator: Mediator Technical Identifier Reference
         lots = root_element.xpath(".//cac:ProcurementProjectLot[cbc:ID/@schemeName='Lot']", namespaces=self.parser.nsmap)
         for lot in lots:
             mediator_id = self.parser.find_text(lot, ".//cac:TenderingTerms/cac:AppealTerms/cac:MediationParty/cac:PartyIdentification/cbc:ID", namespaces=self.parser.nsmap)
@@ -2131,7 +2123,6 @@ class TEDtoOCDSConverter:
                     })
 
     def fetch_opt_301_lot_review_org(self, root_element):
-        # OPT-301-Lot-ReviewOrg: Review Organization Technical Identifier Reference
         lots = root_element.xpath(".//cac:ProcurementProjectLot[cbc:ID/@schemeName='Lot']", namespaces=self.parser.nsmap)
         for lot in lots:
             review_org_id = self.parser.find_text(lot, ".//cac:TenderingTerms/cac:AppealTerms/cac:AppealReceiverParty/cac:PartyIdentification/cbc:ID", namespaces=self.parser.nsmap)
@@ -2147,7 +2138,6 @@ class TEDtoOCDSConverter:
                     })
 
     def fetch_opt_301_part_review_org(self, root_element):
-        # OPT-301-Part-ReviewOrg: Review Organization Technical Identifier Reference for Parts
         parts = root_element.xpath(".//cac:ProcurementProjectLot[cbc:ID/@schemeName='Part']", namespaces=self.parser.nsmap)
         for part in parts:
             review_org_id = self.parser.find_text(part, ".//cac:TenderingTerms/cac:AppealTerms/cac:AppealReceiverParty/cac:PartyIdentification/cbc:ID", namespaces=self.parser.nsmap)
@@ -2161,6 +2151,147 @@ class TEDtoOCDSConverter:
                         "id": review_org_id,
                         "roles": ["reviewBody"]
                     })
+
+    def fetch_opt_301_part_mediator(self, root_element):
+        parts = root_element.xpath(".//cac:ProcurementProjectLot[cbc:ID/@schemeName='Part']", namespaces=self.parser.nsmap)
+        for part in parts:
+            mediator_id = self.parser.find_text(part, ".//cac:TenderingTerms/cac:AppealTerms/cac:MediationParty/cac:PartyIdentification/cbc:ID", namespaces=self.parser.nsmap)
+            if mediator_id:
+                existing_org = next((org for org in self.parties if org['id'] == mediator_id), None)
+                if existing_org:
+                    if 'mediationBody' not in existing_org['roles']:
+                        existing_org['roles'].append('mediationBody')
+                else:
+                    self.parties.append({
+                        "id": mediator_id,
+                        "roles": ["mediationBody"]
+                    })
+
+    def fetch_opt_301_part_review_info(self, root_element):
+        parts = root_element.xpath(".//cac:ProcurementProjectLot[cbc:ID/@schemeName='Part']", namespaces=self.parser.nsmap)
+        for part in parts:
+            review_info_id = self.parser.find_text(part, ".//cac:TenderingTerms/cac:AppealTerms/cac:AppealInformationParty/cac:PartyIdentification/cbc:ID", namespaces=self.parser.nsmap)
+            if review_info_id:
+                existing_org = next((org for org in self.parties if org['id'] == review_info_id), None)
+                if existing_org:
+                    if 'reviewContactPoint' not in existing_org['roles']:
+                        existing_org['roles'].append('reviewContactPoint')
+                else:
+                    self.parties.append({
+                        "id": review_info_id,
+                        "roles": ["reviewContactPoint"]
+                    })
+
+    def fetch_opt_301_part_tender_eval(self, root_element):
+        parts = root_element.xpath(".//cac:ProcurementProjectLot[cbc:ID/@schemeName='Part']", namespaces=self.parser.nsmap)
+        for part in parts:
+            tender_eval_id = self.parser.find_text(part, ".//cac:TenderingTerms/cac:TenderEvaluationParty/cac:PartyIdentification/cbc:ID", namespaces=self.parser.nsmap)
+            if tender_eval_id:
+                existing_org = next((org for org in self.parties if org['id'] == tender_eval_id), None)
+                if existing_org:
+                    if 'evaluationBody' not in existing_org['roles']:
+                        existing_org['roles'].append('evaluationBody')
+                else:
+                    self.parties.append({
+                        "id": tender_eval_id,
+                        "roles": ["evaluationBody"]
+                    })
+
+    def fetch_opt_301_lot_tender_eval(self, root_element):
+        lots = root_element.xpath(".//cac:ProcurementProjectLot[cbc:ID/@schemeName='Lot']", namespaces=self.parser.nsmap)
+        for lot in lots:
+            tender_eval_id = self.parser.find_text(lot, ".//cac:TenderingTerms/cac:TenderEvaluationParty/cac:PartyIdentification/cbc:ID", namespaces=self.parser.nsmap)
+            if tender_eval_id:
+                existing_org = next((org for org in self.parties if org['id'] == tender_eval_id), None)
+                if existing_org:
+                    if 'evaluationBody' not in existing_org['roles']:
+                        existing_org['roles'].append('evaluationBody')
+                else:
+                    self.parties.append({
+                        "id": tender_eval_id,
+                        "roles": ["evaluationBody"]
+                    })
+
+    def fetch_opt_301_lot_review_info(self, root_element):
+        lots = root_element.xpath(".//cac:ProcurementProjectLot[cbc:ID/@schemeName='Lot']", namespaces=self.parser.nsmap)
+        for lot in lots:
+            review_info_id = self.parser.find_text(lot, ".//cac:TenderingTerms/cac:AppealTerms/cac:AppealInformationParty/cac:PartyIdentification/cbc:ID", namespaces=self.parser.nsmap)
+            if review_info_id:
+                existing_org = next((org for org in self.parties if org['id'] == review_info_id), None)
+                if existing_org:
+                    if 'reviewContactPoint' not in existing_org['roles']:
+                        existing_org['roles'].append('reviewContactPoint')
+                else:
+                    self.parties.append({
+                        "id": review_info_id,
+                        "roles": ["reviewContactPoint"]
+                    })  
+
+    def fetch_opt_301_lot_doc_provider(self, root_element):
+        lots = root_element.xpath(".//cac:ProcurementProjectLot[cbc:ID/@schemeName='Lot']", namespaces=self.parser.nsmap)
+        for lot in lots:
+            doc_provider_id = self.parser.find_text(lot, ".//cac:TenderingTerms/cac:DocumentProviderParty/cac:PartyIdentification/cbc:ID", namespaces=self.parser.nsmap)
+            if doc_provider_id:
+                existing_org = next((org for org in self.parties if org['id'] == doc_provider_id), None)
+                if existing_org:
+                    if 'processContactPoint' not in existing_org['roles']:
+                        existing_org['roles'].append('processContactPoint')
+                else:
+                    self.parties.append({
+                        "id": doc_provider_id,
+                        "roles": ["processContactPoint"]
+                    })  
+
+    def fetch_opt_301_part_doc_provider(self, root_element):
+        parts = root_element.xpath(".//cac:ProcurementProjectLot[cbc:ID/@schemeName='Part']", namespaces=self.parser.nsmap)
+        for part in parts:
+            doc_provider_id = self.parser.find_text(part, ".//cac:TenderingTerms/cac:DocumentProviderParty/cac:PartyIdentification/cbc:ID", namespaces=self.parser.nsmap)
+            if doc_provider_id:
+                existing_org = next((org for org in self.parties if org['id'] == doc_provider_id), None)
+                if existing_org:
+                    if 'processContactPoint' not in existing_org['roles']:
+                        existing_org['roles'].append('processContactPoint')
+                else:
+                    self.parties.append({
+                        "id": doc_provider_id,
+                        "roles": ["processContactPoint"]
+                    })    
+
+    def fetch_opt_301_part_add_info_provider(self, root_element):
+        parts = root_element.xpath(".//cac:ProcurementProjectLot[cbc:ID/@schemeName='Part']", namespaces=self.parser.nsmap)
+        for part in parts:
+            additional_info_party_id = self.parser.find_text(part, ".//cac:TenderingTerms/cac:AdditionalInformationParty/cac:PartyIdentification/cbc:ID", namespaces=self.parser.nsmap)
+            if additional_info_party_id:
+                existing_org = next((org for org in self.parties if org['id'] == additional_info_party_id), None)
+                if existing_org:
+                    if 'processContactPoint' not in existing_org['roles']:
+                        existing_org['roles'].append('processContactPoint')
+                else:
+                    self.parties.append({
+                        "id": additional_info_party_id,
+                        "roles": ["processContactPoint"]
+                    })        
+
+    def fetch_opt_301_part_employ_legis(self, root_element):
+        part_elements = root_element.findall(".//cac:ProcurementProjectLot[cbc:ID/@schemeName='Part']", namespaces=self.parser.nsmap)
+        for part in part_elements:
+            part_id = self.parser.find_text(part, "./cbc:ID", namespaces=self.parser.nsmap)
+            legis_doc_elements = part.findall(".//cac:EmploymentLegislationDocumentReference", namespaces=self.parser.nsmap)
+            for legis_doc in legis_doc_elements:
+                doc_id = self.parser.find_text(legis_doc, "./cbc:ID", namespaces=self.parser.nsmap)
+                issuer_party_id = self.parser.find_text(legis_doc, "./cac:IssuerParty/cac:PartyIdentification/cbc:ID", namespaces=self.parser.nsmap)
+                if doc_id and issuer_party_id:
+                    document = {
+                        "id": doc_id,
+                        "relatedLots": [part_id],
+                        "publisher": {
+                            "id": issuer_party_id
+                        }
+                    }
+                    self.add_update_document(document)
+                    organization = self.get_or_create_organization(self.parties, issuer_party_id)
+                    if 'informationService' not in organization['roles']:
+                        organization['roles'].append('informationService')   
 
     def add_or_update_lot(self, lots, lot_info):
         """
@@ -2933,6 +3064,7 @@ class TEDtoOCDSConverter:
                             "id": main_contractor_id
                         }
                         subcontract["mainContractors"].append(main_contractor_references)
+
     def fetch_opt_320_contract_tender_reference(self, root_element):
         settled_contracts = root_element.findall(".//efac:NoticeResult/efac:SettledContract", namespaces=self.parser.nsmap)
         for contract in settled_contracts:
@@ -3111,6 +3243,15 @@ class TEDtoOCDSConverter:
             self.fetch_bt5010_lot_financing(root)
             self.fetch_bt5011_contract_financing(root)
             self.fetch_opp_080_public_transport_distance(root)
+            self.fetch_opt_301_lot_tender_eval(root)
+            self.fetch_opt_301_part_tender_eval(root)
+            self.fetch_opt_301_part_mediator(root)
+            self.fetch_opt_301_part_review_info(root)
+            self.fetch_opt_301_part_review_org(root)
+            self.fetch_opt_301_part_doc_provider(root)
+            self.fetch_opt_301_part_add_info_provider(root)
+            self.fetch_opt_301_part_employ_legis(root)
+            self.fetch_opt_300_signatory_reference(root)  # Ensure this method is called
         except Exception as e:
             logging.error(f"Error fetching data: {e}")
 
@@ -3156,6 +3297,9 @@ class TEDtoOCDSConverter:
                 "contracts": award_contracts
             })
 
+        # Remove duplicate contracts
+        unique_contracts = {contract['id']: contract for contract in self.get_contracts()}.values()
+
         release = {
             "id": ocid,
             "ocid": ocid,
@@ -3184,7 +3328,7 @@ class TEDtoOCDSConverter:
             },
             "relatedProcesses": related_processes,
             "awards": awards,
-            "contracts": [contract for contract in self.get_contracts() if 'dateSigned' in contract],
+            "contracts": list(unique_contracts),
             "bids": self.tender["bids"]
         }
 
