@@ -914,50 +914,35 @@ class TEDtoOCDSConverter:
                     })
 
     def fetch_bt500_company_organization(self, root_element):
-        logger = logging.getLogger(__name__)
         organizations = []
-
         organization_elements = root_element.findall(".//efac:Organizations/efac:Organization", namespaces=self.parser.nsmap)
 
         for org_element in organization_elements:
             org_id = self.parser.find_text(org_element, "./efac:Company/cac:PartyIdentification/cbc:ID", namespaces=self.parser.nsmap)
             if org_id:
-                logger.debug(f"Parsing organization with ID: {org_id}")
-
                 organization = self.get_or_create_organization(organizations, org_id)
-                logger.debug(f"Initial organization data: {json.dumps(organization, indent=2, ensure_ascii=False)}")
-
                 org_name = self.parser.find_text(org_element, "./efac:Company/cac:PartyName/cbc:Name", namespaces=self.parser.nsmap)
                 if org_name:
-                    logger.debug(f"Found organization name: {org_name}")
                     department = self.parser.find_text(org_element, "./efac:Company/cac:PostalAddress/cbc:Department", namespaces=self.parser.nsmap)
                     organization['name'] = f"{org_name} - {department}" if department else org_name
 
                 company_id = self.parser.find_text(org_element, "./efac:Company/cac:PartyLegalEntity/cbc:CompanyID", namespaces=self.parser.nsmap)
                 if company_id:
-                    if not any(identifier['id'] == company_id for identifier in organization.get("additionalIdentifiers", [])):
-                        organization.setdefault("additionalIdentifiers", []).append({"id": company_id, "scheme": "CompanyID"})
+                    organization.setdefault("additionalIdentifiers", []).append({"id": company_id, "scheme": "CompanyID"})
 
                 address_element = org_element.find('./efac:Company/cac:PostalAddress', namespaces=self.parser.nsmap)
                 if address_element is not None:
-                    logger.debug(f"Found address element for organization ID: {org_id}")
                     organization['address'] = {
-                        "streetAddress": self.process_street_address(address_element, self.parser.nsmap),
                         "locality": self.parser.find_text(address_element, './cbc:CityName', namespaces=self.parser.nsmap),
-                        "region": self.parser.find_text(address_element, './cbc:CountrySubentity', namespaces=self.parser.nsmap),
                         "postalCode": self.parser.find_text(address_element, './cbc:PostalZone', namespaces=self.parser.nsmap),
+                        "region": self.parser.find_text(address_element, './cbc:CountrySubentity', namespaces=self.parser.nsmap),
                         "country": self.convert_language_code(self.parser.find_text(address_element, './cac:Country/cbc:IdentificationCode', namespaces=self.parser.nsmap), code_type='country')
                     }
 
-                logger.debug(f"Organization with address: {json.dumps(organization, indent=2, ensure_ascii=False)}")
-
-                # Handle the contact point
                 contact_point = self.fetch_bt502_contact_point(org_element)
                 if contact_point:
-                    logger.debug(f"Found contact point: {contact_point}")
                     organization['contactPoint'] = contact_point
 
-                # Fetch listedOnRegulatedMarket and scale
                 listed_on_market = self.fetch_listed_on_regulated_market(org_element)
                 if listed_on_market is not None:
                     organization.setdefault("details", {})["listedOnRegulatedMarket"] = listed_on_market
@@ -966,21 +951,12 @@ class TEDtoOCDSConverter:
                 if company_size:
                     organization.setdefault("details", {})["scale"] = company_size
 
-                # Ensure roles are populated
-                roles = self.parser.find_text(org_element, "./efac:Company/cac:PartyRoleCode", namespaces=self.parser.nsmap)
-                if roles:
-                    organization['roles'] = roles.split(',')
-
                 self.add_or_update_party(organizations, organization)
-            else:
-                logger.warning('Party element found without an ID or Name!')
 
-            # Beneficial Owners
             ubo_elements = org_element.findall(".//efac:UltimateBeneficialOwner", namespaces=self.parser.nsmap)
             for ubo_element in ubo_elements:
                 ubo_id = self.parser.find_text(ubo_element, "./cbc:ID", namespaces=self.parser.nsmap)
                 if ubo_id:
-                    logger.debug(f"Processing UBO with ID: {ubo_id}")
                     family_name = self.parser.find_text(ubo_element, './cbc:FamilyName', namespaces=self.parser.nsmap) or ""
                     first_name = self.parser.find_text(ubo_element, './cbc:FirstName', namespaces=self.parser.nsmap) or ""
                     full_name = f"{first_name} {family_name}".strip()
@@ -998,7 +974,6 @@ class TEDtoOCDSConverter:
                         ubo_info.update(phone_info)
 
                     organization.setdefault("beneficialOwners", []).append(ubo_info)
-                    logger.debug(f"Updated organization with UBO: {organization}")
 
         return organizations
 
@@ -2047,7 +2022,7 @@ class TEDtoOCDSConverter:
             })
 
     def get_contracts(self):
-        return self.awards
+        return [contract for award in self.awards for contract in award.get("contracts", [])]
 
     def get_direct_award_justification_description(self, code):
         # Assuming a mapping dictionary or method that maps justification codes to their descriptions
@@ -2344,14 +2319,36 @@ class TEDtoOCDSConverter:
                 self.add_or_update_contract_related_bids(contract_id, tender_id)
                 self.handle_tendering_party(contract_id, tender_id)
 
-    def add_or_update_contract_related_bids(self, contract_id, tender_id):
-        contract = next((c for c in self.get_contracts() if c['id'] == contract_id), None)
-        if not contract:
-            contract = {"id": contract_id, "relatedBids": [tender_id]}
-            self.get_contracts().append(contract)
-        else:
-            if tender_id not in contract.get('relatedBids', []):
-                contract.setdefault('relatedBids', []).append(tender_id)
+    def add_or_update_contract(self, contract_id, contract_info):
+        found = False
+        if not self.awards:
+            self.awards.append({"id": str(uuid.uuid4()), "contracts": []})
+            
+        for award in self.awards:
+            if "contracts" not in award:
+                award["contracts"] = []
+
+            for contract in award["contracts"]:
+                if contract["id"] == contract_id:
+                    contract.update(contract_info)
+                    found = True
+                    break
+
+            if not found:
+                award["contracts"].append({
+                    "id": contract_id,
+                    **contract_info
+                })
+            return
+        
+        new_award = {
+            "id": str(uuid.uuid4()),
+            "contracts": [{
+                "id": contract_id,
+                **contract_info
+            }]
+        }
+        self.awards.append(new_award)
 
     def add_supplier_to_award(self, contract_id, supplier_id):
         for award in self.awards:
@@ -2566,38 +2563,6 @@ class TEDtoOCDSConverter:
                 if result_id:
                     self.add_or_update_contract(result_id, contract_info)
 
-    def add_or_update_contract(self, contract_id, contract_info):
-        found = False
-        if not self.awards:
-            self.awards.append({"id": str(uuid.uuid4()), "contracts": []})
-            
-        for award in self.awards:
-            if "contracts" not in award:
-                award["contracts"] = []
-
-            # Check for existing contract
-            for contract in award["contracts"]:
-                if contract["id"] == contract_id:
-                    contract.update(contract_info)
-                    found = True
-                    break
-
-            if not found:
-                award["contracts"].append({
-                    "id": contract_id,
-                    **contract_info
-                })
-            return
-        
-        # If no existing award with contract_id, create new award
-        new_award = {
-            "id": str(uuid.uuid4()),
-            "contracts": [{
-                "id": contract_id,
-                **contract_info
-            }]
-        }
-        self.awards.append(new_award)
     
     def fetch_bt200_contract_modification(self, root_element):
         contract_mods = root_element.findall(".//efac:ContractModification", namespaces=self.parser.nsmap)
@@ -2844,9 +2809,6 @@ class TEDtoOCDSConverter:
                     self.add_or_update_lot(self.tender["lots"], lot_info)
 
     def fetch_bt773_subcontracting(self, root_element):
-        """
-        Fetches BT-773: Whether at least a part of the contract will be subcontracted.
-        """
         lot_tenders = root_element.xpath(".//efac:NoticeResult/efac:LotTender", namespaces=self.parser.nsmap)
         for lot_tender in lot_tenders:
             tender_id = self.parser.find_text(lot_tender, "./cbc:ID", namespaces=self.parser.nsmap)
@@ -2863,13 +2825,11 @@ class TEDtoOCDSConverter:
                 if subcontracting_term:
                     bid["hasSubcontracting"] = subcontracting_term.lower() == "yes"
 
-                # Add rank
                 rank = self.parser.find_text(lot_tender, "./cbc:RankCode", namespaces=self.parser.nsmap)
                 if rank:
                     bid["rank"] = int(rank)
                     bid["hasRank"] = True
 
-                # Add "value"
                 value = self.parser.find_text(lot_tender, "./cac:LegalMonetaryTotal/cbc:PayableAmount", namespaces=self.parser.nsmap)
                 currency_id = self.parser.find_attribute(lot_tender, "./cac:LegalMonetaryTotal/cbc:PayableAmount", "currencyID")
                 if value and currency_id:
@@ -2878,7 +2838,6 @@ class TEDtoOCDSConverter:
                         "currency": currency_id
                     }
 
-                # Find tenderer organizations
                 tenderers = lot_tender.xpath("efac:TenderingParty[efac:Tenderer]", namespaces=self.parser.nsmap)
                 for tenderer_entry in tenderers:
                     tenderer_id = self.parser.find_text(tenderer_entry, "efac:Tenderer/efac:PartyIdentification/cbc:ID", namespaces=self.parser.nsmap)
@@ -2983,6 +2942,15 @@ class TEDtoOCDSConverter:
                 self.add_or_update_contract_related_bids(contract_id, tender_id)
                 self.handle_tendering_party(contract_id, tender_id)
 
+    def add_or_update_contract_related_bids(self, contract_id, tender_id):
+        contract = next((c for c in self.get_contracts() if c['id'] == contract_id), None)
+        if not contract:
+            contract = {"id": contract_id, "relatedBids": [tender_id]}
+            self.get_contracts().append(contract)
+        else:
+            if tender_id not in contract.get('relatedBids', []):
+                contract.setdefault('relatedBids', []).append(tender_id)
+
     def handle_tendering_party(self, contract_id, tender_id):
         root = self.parser.root
         tendering_party_id = self.parser.find_text(root, f".//efac:LotTender[cbc:ID='{tender_id}']/efac:TenderingParty/cbc:ID", namespaces=self.parser.nsmap)
@@ -3064,7 +3032,7 @@ class TEDtoOCDSConverter:
             contract_id = self.parser.find_text(contract, "./cbc:ID", namespaces=self.parser.nsmap)
             contract_reference = self.parser.find_text(contract, "./efac:ContractReference/cbc:ID", namespaces=self.parser.nsmap)
             if contract_id and contract_reference:
-                self.add_or_update_contract(contract_id, {"identifiers": [{"id": contract_reference, "scheme": "NL-TENDERNED"}]})        
+                self.add_or_update_contract(contract_id, {"identifiers": [{"id": contract_reference, "scheme": "NL-TENDERNED"}]})       
 
 
     def convert_tender_to_ocds(self):
