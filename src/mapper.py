@@ -242,13 +242,9 @@ class TEDtoOCDSConverter:
             logging.warning("Part Presentation Code indicating all lots not found.")
 
     def fetch_bt5010_lot_financing(self, root_element):
-        """
-        Fetches BT-5010: An identifier of the Union programme used to at least partially
-        finance the contract.
-        """
         lots = root_element.findall(".//cac:ProcurementProjectLot", namespaces=self.parser.nsmap)
         for lot in lots:
-            lot_id = self.parser.find_text(lot, "./cbc:ID", namespaces=self.parser.nsmap)
+            lot_id = self.parser.find_text(lot, "./cbc:ID")
             financings = lot.findall(".//efac:Funding/efbc:FinancingIdentifier", namespaces=self.parser.nsmap)
             for financing in financings:
                 financing_id = financing.text
@@ -256,17 +252,26 @@ class TEDtoOCDSConverter:
 
     
     def fetch_bt5011_contract_financing(self, root_element):
-        """
-        Fetches BT-5011: An identifier of the Union programme used to at least partially
-        finance the contract.
-        """
-        contracts = root_element.findall(".//efac:SettledContract", namespaces=self.parser.nsmap)
-        for contract in contracts:
+        settled_contracts = root_element.findall(".//efac:NoticeResult/efac:SettledContract", namespaces=self.parser.nsmap)
+        for contract in settled_contracts:
             contract_id = self.parser.find_text(contract, "./cbc:ID", namespaces=self.parser.nsmap)
             financings = contract.findall(".//efac:Funding/efbc:FinancingIdentifier", namespaces=self.parser.nsmap)
             for financing in financings:
                 financing_id = financing.text
                 self.update_eu_funder(financing_id, contract_id, level='contract')
+
+    def fetch_opp_080_public_transport_distance(self, root_element):
+        notice_results = root_element.findall(".//efac:NoticeResult", namespaces=self.parser.nsmap)
+        for notice_result in notice_results:
+            lot_tenders = notice_result.findall(".//efac:LotTender", namespaces=self.parser.nsmap)
+            for lot_tender in lot_tenders:
+                tender_id = self.parser.find_text(lot_tender, "./cbc:ID", namespaces=self.parser.nsmap)
+                distance = self.parser.find_text(lot_tender, "./efbc:PublicTransportationCumulatedDistance", namespaces=self.parser.nsmap)
+                if tender_id and distance:
+                    settled_contract = notice_result.find(f".//efac:SettledContract/efac:LotTender[cbc:ID='{tender_id}']/..", namespaces=self.parser.nsmap)
+                    if settled_contract is not None:
+                        contract_id = self.parser.find_text(settled_contract, "./cbc:ID", namespaces=self.parser.nsmap)
+                        self.add_or_update_contract(contract_id, {"publicPassengerTransportServicesKilometers": int(distance)})
 
     def fetch_bt60_lot_funding(self, root_element):
         """
@@ -289,13 +294,7 @@ class TEDtoOCDSConverter:
                 self.update_funder_role(financing_party_id)
 
     def update_eu_funder(self, financing_id=None, related_id=None, level='lot'):
-        """
-        Updates the EU funder finance information.
-        :param financing_id: Financing Identifier
-        :param related_id: Related Lot or Contract ID
-        :param level: Specifies if the level is 'lot' or 'contract'
-        """
-        eu_funder = next((p for p in self.parties if p.get('name') == 'European Union'), None)  # Use .get('name')
+        eu_funder = next((p for p in self.parties if p.get('name') == 'European Union'), None)
         if not eu_funder:
             eu_funder = {
                 "id": str(uuid.uuid4()),
@@ -333,11 +332,11 @@ class TEDtoOCDSConverter:
                         award["finance"] = []
                     award["finance"].append({
                         "id": financing_id or 'EU-funded',
-                            "financingParty": {
-                                "id": eu_funder["id"],
-                                "name": eu_funder["name"]
-                            }
-                        })
+                        "financingParty": {
+                            "id": eu_funder["id"],
+                            "name": eu_funder["name"]
+                        }
+                    })
 
     def update_funder_role(self, funding_party_id):
         """
@@ -957,6 +956,20 @@ class TEDtoOCDSConverter:
                 if contact_point:
                     logger.debug(f"Found contact point: {contact_point}")
                     organization['contactPoint'] = contact_point
+
+                # Fetch listedOnRegulatedMarket and scale
+                listed_on_market = self.fetch_listed_on_regulated_market(org_element)
+                if listed_on_market is not None:
+                    organization.setdefault("details", {})["listedOnRegulatedMarket"] = listed_on_market
+
+                company_size = self.fetch_company_size(org_element)
+                if company_size:
+                    organization.setdefault("details", {})["scale"] = company_size
+
+                # Ensure roles are populated
+                roles = self.parser.find_text(org_element, "./efac:Company/cac:PartyRoleCode", namespaces=self.parser.nsmap)
+                if roles:
+                    organization['roles'] = roles.split(',')
 
                 self.add_or_update_party(organizations, organization)
             else:
@@ -2553,31 +2566,36 @@ class TEDtoOCDSConverter:
                 if result_id:
                     self.add_or_update_contract(result_id, contract_info)
 
-    def add_or_update_contract(self, result_id, contract_info):
+    def add_or_update_contract(self, contract_id, contract_info):
         found = False
         if not self.awards:
-            self.awards.append({"id": result_id, "contracts": []})
+            self.awards.append({"id": str(uuid.uuid4()), "contracts": []})
             
         for award in self.awards:
-            if award["id"] == result_id:
-                if "contracts" not in award:
-                    award["contracts"] = []
+            if "contracts" not in award:
+                award["contracts"] = []
 
-                # Check for existing contract
-                for contract in award["contracts"]:
-                    if contract["id"] == contract_info["id"]:
-                        contract.update(contract_info)
-                        found = True
-                        break
+            # Check for existing contract
+            for contract in award["contracts"]:
+                if contract["id"] == contract_id:
+                    contract.update(contract_info)
+                    found = True
+                    break
 
-                if not found:
-                    award["contracts"].append(contract_info)
-                return
+            if not found:
+                award["contracts"].append({
+                    "id": contract_id,
+                    **contract_info
+                })
+            return
         
-        # If no existing award with result_id, create new award
+        # If no existing award with contract_id, create new award
         new_award = {
-            "id": result_id,
-            "contracts": [contract_info]
+            "id": str(uuid.uuid4()),
+            "contracts": [{
+                "id": contract_id,
+                **contract_info
+            }]
         }
         self.awards.append(new_award)
     
@@ -3032,6 +3050,23 @@ class TEDtoOCDSConverter:
         else:
             parties.append(new_party)
 
+    def fetch_bt145_contract_conclusion_date(self, root_element):
+        settled_contracts = root_element.findall(".//efac:NoticeResult/efac:SettledContract", namespaces=self.parser.nsmap)
+        for contract in settled_contracts:
+            contract_id = self.parser.find_text(contract, "./cbc:ID", namespaces=self.parser.nsmap)
+            issue_date = self.parser.find_text(contract, "./cbc:IssueDate", namespaces=self.parser.nsmap)
+            if contract_id and issue_date:
+                self.add_or_update_contract(contract_id, {"dateSigned": parse_iso_date(issue_date).isoformat()})
+
+    def fetch_bt150_contract_identifier(self, root_element):
+        settled_contracts = root_element.findall(".//efac:NoticeResult/efac:SettledContract", namespaces=self.parser.nsmap)
+        for contract in settled_contracts:
+            contract_id = self.parser.find_text(contract, "./cbc:ID", namespaces=self.parser.nsmap)
+            contract_reference = self.parser.find_text(contract, "./efac:ContractReference/cbc:ID", namespaces=self.parser.nsmap)
+            if contract_id and contract_reference:
+                self.add_or_update_contract(contract_id, {"identifiers": [{"id": contract_reference, "scheme": "NL-TENDERNED"}]})        
+
+
     def convert_tender_to_ocds(self):
         root = self.parser.root
 
@@ -3099,6 +3134,11 @@ class TEDtoOCDSConverter:
             self.fetch_bt709_framework_maximum_value(root)
             self.fetch_bt720_tender_value(root)
             self.fetch_bt735_cvd_contract_type(root)
+            self.fetch_bt145_contract_conclusion_date(root)
+            self.fetch_bt150_contract_identifier(root)
+            self.fetch_bt5010_lot_financing(root)
+            self.fetch_bt5011_contract_financing(root)
+            self.fetch_opp_080_public_transport_distance(root)
         except Exception as e:
             logging.error(f"Error fetching data: {e}")
 
