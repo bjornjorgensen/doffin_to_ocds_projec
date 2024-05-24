@@ -3017,6 +3017,10 @@ class TEDtoOCDSConverter:
                 existing_party['additionalIdentifiers'] = list({v['id']: v for v in existing_party['additionalIdentifiers']}.values())
         else:
             parties.append(new_party)
+        
+        # Remove 'scheme' key from 'identifier' if it exists
+        if 'identifier' in new_party and 'scheme' in new_party['identifier']:
+            del new_party['identifier']['scheme']
 
     def fetch_bt145_contract_conclusion_date(self, root_element):
         settled_contracts = root_element.findall(".//efac:NoticeResult/efac:SettledContract", namespaces=self.parser.nsmap)
