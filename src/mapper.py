@@ -1279,8 +1279,7 @@ class TEDtoOCDSConverter:
         if not found:
             self.tender.setdefault("documents", []).append(new_document)
 
-    @staticmethod
-    def get_or_create_organization(organizations, org_id):
+    def get_or_create_organization(self, organizations, org_id):
         for organization in organizations:
             if organization['id'] == org_id:
                 return organization
@@ -2350,20 +2349,6 @@ class TEDtoOCDSConverter:
                 self.add_or_update_award(result_id)
                 self.add_or_update_award_related_lots(result_id, [lot_id])
 
-    def add_or_update_award_related_lots(self, award_id, related_lots):
-        award = next((a for a in self.awards if a['id'] == award_id), None)
-        if award:
-            for lot_id in related_lots:
-                if lot_id not in award['relatedLots']:
-                    award['relatedLots'].append(lot_id)
-        else:
-            self.awards.append({"id": award_id, "relatedLots": related_lots})
-
-    def add_or_update_award(self, award_id):
-        award = next((a for a in self.awards if a['id'] == award_id), None)
-        if not award:
-            self.awards.append({"id": award_id, "relatedLots": []})
-
     def fetch_bt142_winner_chosen(self, root_element):
         lot_results = root_element.findall(".//efac:NoticeResult/efac:LotResult", namespaces=self.parser.nsmap)
         for lot_result in lot_results:
@@ -3184,7 +3169,6 @@ class TEDtoOCDSConverter:
         self.tender.setdefault("bids", {}).setdefault("details", [])
 
         try:
-            # Fetch various data elements
             self.fetch_bt710_bt711_bid_statistics(root)
             self.fetch_bt712_complaints_statistics(root)
             self.fetch_bt09_cross_border_law(root)
@@ -3251,7 +3235,7 @@ class TEDtoOCDSConverter:
             self.fetch_opt_301_part_doc_provider(root)
             self.fetch_opt_301_part_add_info_provider(root)
             self.fetch_opt_301_part_employ_legis(root)
-            self.fetch_opt_300_signatory_reference(root)  # Ensure this method is called
+            self.fetch_opt_300_signatory_reference(root)
         except Exception as e:
             logging.error(f"Error fetching data: {e}")
 
