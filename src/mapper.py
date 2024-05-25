@@ -240,7 +240,7 @@ class TEDtoOCDSConverter:
                     signatory_party, "./../../cbc:ID", namespaces=self.parser.nsmap
                 )
                 for award in self.awards:
-                    if contract_id in award.get("relatedContracts", []):
+                    if contract_id in [c["id"] for c in award.get("contracts", [])]:
                         award.setdefault("buyers", []).append({"id": signatory_id})
 
     def fetch_bt712_complaints_statistics(self, root_element):
@@ -3279,31 +3279,32 @@ class TEDtoOCDSConverter:
                     )
 
     def fetch_opt_301_part_employ_legis(self, root_element):
-        part_elements = root_element.findall(
+        parts = root_element.xpath(
             ".//cac:ProcurementProjectLot[cbc:ID/@schemeName='Part']",
             namespaces=self.parser.nsmap,
         )
-        for part in part_elements:
-            part_id = self.parser.find_text(
-                part, "./cbc:ID", namespaces=self.parser.nsmap
-            )
-            legis_doc_elements = part.findall(
-                ".//cac:EmploymentLegislationDocumentReference",
+        for part in parts:
+            employ_legis_docs = part.xpath(
+                ".//cac:TenderingTerms/cac:EmploymentLegislationDocumentReference",
                 namespaces=self.parser.nsmap,
             )
-            for legis_doc in legis_doc_elements:
+            for doc in employ_legis_docs:
                 doc_id = self.parser.find_text(
-                    legis_doc, "./cbc:ID", namespaces=self.parser.nsmap
+                    doc, "./cbc:ID", namespaces=self.parser.nsmap
                 )
                 issuer_party_id = self.parser.find_text(
-                    legis_doc,
+                    doc,
                     "./cac:IssuerParty/cac:PartyIdentification/cbc:ID",
                     namespaces=self.parser.nsmap,
                 )
                 if doc_id and issuer_party_id:
                     document = {
                         "id": doc_id,
-                        "relatedLots": [part_id],
+                        "relatedLots": [
+                            self.parser.find_text(
+                                part, "./cbc:ID", namespaces=self.parser.nsmap
+                            )
+                        ],
                         "publisher": {"id": issuer_party_id},
                     }
                     self.add_update_document(document)
@@ -3530,6 +3531,17 @@ class TEDtoOCDSConverter:
             if tender_id and contract_id:
                 self.add_or_update_contract_related_bids(contract_id, tender_id)
                 self.handle_tendering_party(contract_id, tender_id)
+
+    def add_or_update_contract_related_bids(self, contract_id, tender_id):
+        contract = next(
+            (c for c in self.get_contracts() if c["id"] == contract_id), None
+        )
+        if not contract:
+            contract = {"id": contract_id, "relatedBids": [tender_id]}
+            self.get_contracts().append(contract)
+        else:
+            if tender_id not in contract.get("relatedBids", []):
+                contract.setdefault("relatedBids", []).append(tender_id)
 
     def add_or_update_contract(self, contract_id, contract_info):
         found = False
@@ -4490,17 +4502,6 @@ class TEDtoOCDSConverter:
                 self.add_or_update_contract_related_bids(contract_id, tender_id)
                 self.handle_tendering_party(contract_id, tender_id)
 
-    def add_or_update_contract_related_bids(self, contract_id, tender_id):
-        contract = next(
-            (c for c in self.get_contracts() if c["id"] == contract_id), None
-        )
-        if not contract:
-            contract = {"id": contract_id, "relatedBids": [tender_id]}
-            self.get_contracts().append(contract)
-        else:
-            if tender_id not in contract.get("relatedBids", []):
-                contract.setdefault("relatedBids", []).append(tender_id)
-
     def handle_tendering_party(self, contract_id, tender_id):
         root = self.parser.root
         tendering_party_id = self.parser.find_text(
@@ -4673,98 +4674,180 @@ class TEDtoOCDSConverter:
         self.tender.setdefault("bids", {}).setdefault("details", [])
 
         try:
+            logging.debug("Fetching BT-710 and BT-711 bid statistics")
             self.fetch_bt710_bt711_bid_statistics(root)
+            logging.debug("Fetching BT-712 complaints statistics")
             self.fetch_bt712_complaints_statistics(root)
+            logging.debug("Fetching BT-09 cross border law")
             self.fetch_bt09_cross_border_law(root)
+            logging.debug("Fetching BT-111 lot buyer categories")
             self.fetch_bt111_lot_buyer_categories(root)
+            logging.debug("Fetching BT-766 dynamic purchasing system lot")
             self.fetch_bt766_dynamic_purchasing_system_lot(root)
+            logging.debug("Fetching BT-766 dynamic purchasing system part")
             self.fetch_bt766_dynamic_purchasing_system_part(root)
+            logging.debug("Fetching BT-775 social procurement")
             self.fetch_bt775_social_procurement(root)
+            logging.debug("Fetching BT-06 lot strategic procurement")
             self.fetch_bt06_lot_strategic_procurement(root)
+            logging.debug("Fetching BT-539 award criterion type")
             self.fetch_bt539_award_criterion_type(root)
+            logging.debug("Fetching BT-540 award criterion description")
             self.fetch_bt540_award_criterion_description(root)
+            logging.debug("Fetching BT-541 award criterion fixed number")
             self.fetch_bt541_award_criterion_fixed_number(root)
+            logging.debug("Fetching BT-5421 award criterion number weight")
             self.fetch_bt5421_award_criterion_number_weight(root)
+            logging.debug("Fetching BT-5422 award criterion number fixed")
             self.fetch_bt5422_award_criterion_number_fixed(root)
+            logging.debug("Fetching BT-5423 award criterion number threshold")
             self.fetch_bt5423_award_criterion_number_threshold(root)
+            logging.debug("Fetching BT-543 award criteria complicated")
             self.fetch_bt543_award_criteria_complicated(root)
+            logging.debug("Fetching BT-733 award criteria order rationale")
             self.fetch_bt733_award_criteria_order_rationale(root)
+            logging.debug("Fetching BT-734 award criterion name")
             self.fetch_bt734_award_criterion_name(root)
+            logging.debug("Handling BT-14 and BT-707")
             self.handle_bt14_and_bt707(root)
+            logging.debug("Fetching OPP-050 buyers group lead")
             self.fetch_opp_050_buyers_group_lead(root)
+            logging.debug("Fetching OPT-300 contract signatory")
             self.fetch_opt_300_contract_signatory(root)
+            logging.debug("Fetching OPT-301 tenderer main contractor")
             self.fetch_opt_301_tenderer_maincont(root)
+            logging.debug("Fetching BT-773 subcontracting")
             self.fetch_bt773_subcontracting(root)
+            logging.debug("Fetching OPT-310 tendering party ID")
             self.fetch_opt_310_tendering_party_id(root)
-            self.fetch_opt_320_contract_tender_reference(root)
+            logging.debug("Fetching OPT-320 contract tender reference")
+            self.fetch_bt3202_contract_tender_reference(root)
+            logging.debug("Fetching BT-746 organization listed market")
             self.fetch_bt746_organization_listed_market(root)
+            logging.debug("Fetching BT-165 company size")
             self.fetch_bt165_company_size(root)
+            logging.debug("Fetching BT-633 natural person indicator")
             self.fetch_bt633_natural_person_indicator(root)
+            logging.debug("Fetching BT-47 participants")
             self.fetch_bt47_participants(root)
+            logging.debug("Fetching BT-5010 lot financing")
             self.fetch_bt5010_lot_financing(root)
+            logging.debug("Fetching BT-5011 contract financing")
             self.fetch_bt5011_contract_financing(root)
+            logging.debug("Fetching BT-508 buyer profile")
             self.fetch_bt508_buyer_profile(root)
+            logging.debug("Fetching BT-60 lot funding")
             self.fetch_bt60_lot_funding(root)
+            logging.debug("Fetching BT-610 activity entity")
             self.fetch_bt610_activity_entity(root)
+            logging.debug("Fetching BT-740 contracting entity")
             self.fetch_bt740_contracting_entity(root)
+            logging.debug("Fetching OPP-051 awarding CPB buyer")
             self.fetch_opp_051_awarding_cpb_buyer(root)
+            logging.debug("Fetching OPP-052 acquiring CPB buyer")
             self.fetch_opp_052_acquiring_cpb_buyer(root)
+            logging.debug("Fetching OPT-030 service type")
             self.fetch_opt_030_service_type(root)
+            logging.debug("Fetching OPT-170 tender leader")
             self.fetch_opt_170_tender_leader(root)
+            logging.debug("Fetching OPT-301 lot mediator")
             self.fetch_opt_301_lot_mediator(root)
+            logging.debug("Fetching OPT-301 lot review organization")
             self.fetch_opt_301_lot_review_org(root)
+            logging.debug("Fetching OPT-301 part review organization")
             self.fetch_opt_301_part_review_org(root)
+            logging.debug("Fetching OPT-300 buyer technical reference")
             self.fetch_opt_300_buyer_technical_reference(root)
+            logging.debug("Fetching OPT-301 additional information provider")
             self.fetch_opt_301_add_info_provider(root)
+            logging.debug("Fetching OPT-301 lot employment legislation")
             self.fetch_opt_301_lot_employ_legis(root)
+            logging.debug("Fetching OPT-301 lot environmental legislation")
             self.fetch_opt_301_lot_environ_legis(root)
+            logging.debug("Fetching OPT-322 lot result technical identifier")
             self.fetch_opt_322_lotresult_technical_identifier(root)
+            logging.debug("Fetching BT-144 not awarded reason")
             self.fetch_bt144_not_awarded_reason(root)
+            logging.debug("Fetching BT-1451 winner decision date")
             self.fetch_bt1451_winner_decision_date(root)
+            logging.debug("Fetching BT-163 concession value description")
             self.fetch_bt163_concession_value_description(root)
+            logging.debug("Fetching BT-660 framework re-estimated value")
             self.fetch_bt660_framework_re_estimated_value(root)
+            logging.debug("Fetching BT-709 framework maximum value")
             self.fetch_bt709_framework_maximum_value(root)
+            logging.debug("Fetching BT-720 tender value")
             self.fetch_bt720_tender_value(root)
+            logging.debug("Fetching BT-735 CVD contract type")
             self.fetch_bt735_cvd_contract_type(root)
+            logging.debug("Fetching BT-145 contract conclusion date")
             self.fetch_bt145_contract_conclusion_date(root)
+            logging.debug("Fetching BT-150 contract identifier")
             self.fetch_bt150_contract_identifier(root)
+            logging.debug("Fetching BT-5010 lot financing")
             self.fetch_bt5010_lot_financing(root)
+            logging.debug("Fetching BT-5011 contract financing")
             self.fetch_bt5011_contract_financing(root)
+            logging.debug("Fetching OPP-080 public transport distance")
             self.fetch_opp_080_public_transport_distance(root)
+            logging.debug("Fetching OPT-301 lot tender evaluation")
             self.fetch_opt_301_lot_tender_eval(root)
+            logging.debug("Fetching OPT-301 part tender evaluation")
             self.fetch_opt_301_part_tender_eval(root)
+            logging.debug("Fetching OPT-301 part mediator")
             self.fetch_opt_301_part_mediator(root)
+            logging.debug("Fetching OPT-301 part review information")
             self.fetch_opt_301_part_review_info(root)
+            logging.debug("Fetching OPT-301 part review organization")
             self.fetch_opt_301_part_review_org(root)
+            logging.debug("Fetching OPT-301 part document provider")
             self.fetch_opt_301_part_doc_provider(root)
+            logging.debug("Fetching OPT-301 part additional information provider")
             self.fetch_opt_301_part_add_info_provider(root)
+            logging.debug("Fetching OPT-301 part employment legislation")
             self.fetch_opt_301_part_employ_legis(root)
+            logging.debug("Fetching OPT-300 signatory reference")
             self.fetch_opt_300_signatory_reference(root)
         except Exception as e:
             logging.error(f"Error fetching data: {e}")
 
         try:
             # Process other relevant data
+            logging.debug("Parsing activity authority")
             activities = self.parse_activity_authority(root)
+            logging.debug("Parsing buyer legal type")
             legal_types = self.parse_buyer_legal_type(root)
+            logging.debug("Parsing lots")
             lots = self.parse_lots(root)
+            logging.debug("Getting legal basis")
             legal_basis = self.get_legal_basis(root)
+            logging.debug("Fetching BT-300 additional information")
             additional_info = self.fetch_bt300_additional_info(root)
+            logging.debug("Fetching tender estimated value")
             tender_estimated_value = self.fetch_tender_estimated_value(root)
+            logging.debug("Parsing procedure type")
             procedure_type = self.parse_procedure_type(root)
+            logging.debug("Parsing direct award justification")
             (
                 procurement_method_rationale,
                 procurement_method_rationale_classifications,
             ) = self.parse_direct_award_justification(root)
+            logging.debug("Parsing procedure features")
             procedure_features = self.parse_procedure_features(root)
+            logging.debug("Parsing classifications")
             items = self.parse_classifications(root)
+            logging.debug("Parsing related processes")
             related_processes = self.parse_related_processes(root)
 
+            logging.debug("Handling bidding documents")
             self.handle_bidding_documents(root)
+            logging.debug("Fetching OPT-315 contract identifier")
             self.fetch_opt_315_contract_identifier(root)
+            logging.debug("Fetching BT-200 contract modification")
             self.fetch_bt200_contract_modification(root)
 
             # Gather party information
+            logging.debug("Fetching BT-500 company organization")
             self.parties = self.fetch_bt500_company_organization(root)
         except Exception as e:
             logging.error(f"Error processing data: {e}")
@@ -4784,7 +4867,10 @@ class TEDtoOCDSConverter:
                 for contract in self.get_contracts()
                 if award_id in contract.get("relatedBids", [])
             ]
-            awards.append({**award, "contracts": award_contracts})
+            awards.append({
+                **award,
+                "contracts": award_contracts,
+            })
 
         # Remove duplicate contracts
         unique_contracts = {
