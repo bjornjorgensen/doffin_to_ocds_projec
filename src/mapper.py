@@ -436,14 +436,7 @@ class TEDtoOCDSConverter:
         eu_funder = next(
             (p for p in self.parties if p.get("name") == "European Union"), None
         )
-        if not eu_funder:
-            eu_funder = {
-                "id": str(uuid.uuid4()),
-                "name": "European Union",
-                "roles": ["funder"],
-            }
-            self.parties.append(eu_funder)
-
+        
         if level == "lot" and related_id:
             self.budget_finances.append(
                 {
@@ -4936,7 +4929,6 @@ class TEDtoOCDSConverter:
         except Exception as e:
             logging.error(f"Error processing data: {e}")
 
-        # Ensure the European Union is added once with constant ID
         eu_org = self.get_or_create_organization(self.parties, self.EU_ORG_ID, roles=["funder"])
         eu_org.update({"name": "European Union"})
 
