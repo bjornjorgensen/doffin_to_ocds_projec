@@ -57,6 +57,9 @@ class XMLParser:
 
 
 class TEDtoOCDSConverter:
+    EU_ORG_ID = "ORG-EU"
+
+
     def __init__(self, parser):
         self.parser = parser
         self.form_type_mapping = {
@@ -1942,13 +1945,11 @@ class TEDtoOCDSConverter:
             self.tender.setdefault("documents", []).append(new_document)
 
     def get_or_create_organization(self, parties, org_id, roles=None):
-        existing = next((org for org in parties if org["id"] == org_id), None)
-        if existing:
-            if roles:
-                existing_roles = existing.get("roles", [])
-                combined_roles = list(set(existing_roles + roles))
-                existing["roles"] = combined_roles
-            return existing
+        for org in parties:
+            if org["id"] == org_id:
+                if roles:
+                    org["roles"] = list(set(org.get("roles", []) + roles))
+                return org
         new_org = {"id": org_id, "roles": roles if roles else []}
         parties.append(new_org)
         return new_org
@@ -4766,10 +4767,9 @@ class TEDtoOCDSConverter:
     def add_or_update_party(self, parties, new_party):
         existing = next((p for p in parties if p["id"] == new_party["id"]), None)
         if existing:
-            existing.update(new_party)
-            return existing
-        parties.append(new_party)
-        return new_party
+            self.update_organization(existing, new_party)
+        else:
+            parties.append(new_party)
 
     def fetch_bt145_contract_conclusion_date(self, root_element):
         settled_contracts = root_element.findall(
@@ -4930,9 +4930,15 @@ class TEDtoOCDSConverter:
             self.fetch_opt_315_contract_identifier(root)
             self.fetch_bt200_contract_modification(root)
 
-            self.parties.extend(self.fetch_bt500_company_organization(root))
+            company_organizations = self.fetch_bt500_company_organization(root)
+            for company_org in company_organizations:
+                self.add_or_update_party(self.parties, company_org)
         except Exception as e:
             logging.error(f"Error processing data: {e}")
+
+        # Ensure the European Union is added once with constant ID
+        eu_org = self.get_or_create_organization(self.parties, self.EU_ORG_ID, roles=["funder"])
+        eu_org.update({"name": "European Union"})
 
         tenders_lots_items = []
         for lot in lots:
