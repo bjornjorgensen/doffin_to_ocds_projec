@@ -998,21 +998,12 @@ class TEDtoOCDSConverter:
         )
         for buyer_party in buyer_parties:
             buyer_id = self.parser.find_text(
-                buyer_party,
-                "./cac:Party/cac:PartyIdentification/cbc:ID",
-                namespaces=self.parser.nsmap,
-            )
+                buyer_party, "./cac:Party/cac:PartyIdentification/cbc:ID",
+                namespaces=self.parser.nsmap)
             if buyer_id:
-                org = next((o for o in self.parties if o["id"] == buyer_id), None)
-                if not org:
-                    org = {"id": buyer_id, "roles": ["buyer"]}
-                    self.parties.append(org)
-                else:
-                    if "buyer" not in org.get("roles", []):
-                        org["roles"].append("buyer")
+                fetch_organisations_roles(buyer_id, ["buyer"])
 
     def fetch_opt_301_tenderer_maincont(self, root_element):
-        logger.info("Fetching OPT-301 Main Contractor ID Reference")
         notice_results = root_element.findall(
             ".//efac:NoticeResult", namespaces=self.parser.nsmap
         )
@@ -1040,13 +1031,7 @@ class TEDtoOCDSConverter:
                         )
 
                         if main_contractor_id:
-                            main_contractor_org = self.get_or_create_organization(self.parties, main_contractor_id)
-                            if "tenderer" not in main_contractor_org["roles"]:
-                                main_contractor_org["roles"].append("tenderer")
-                                logger.debug(f"Added tenderer role to main contractor {main_contractor_id}")
-
-                            bid = self.add_or_update_bid_with_subcontractor(tender_id, subcontractor_id, main_contractor_id)
-                            logger.debug(f"Updated bid {tender_id} with main contractor {main_contractor_id}")
+                            fetch_organisations_roles(main_contractor_id, ["tenderer"])
 
     def add_or_update_bid_with_subcontractor(self, tender_id, subcontractor_id, main_contractor_id):
         bid = next(
@@ -1371,7 +1356,7 @@ class TEDtoOCDSConverter:
                 namespaces=self.parser.nsmap,
             )
             if org_id:
-                organization = self.get_or_create_organization(organizations, org_id)
+                organization = get_or_create_organization(organizations, org_id)
                 org_name = self.parser.find_text(
                     org_element,
                     "./efac:Company/cac:PartyName/cbc:Name",
@@ -1387,107 +1372,14 @@ class TEDtoOCDSConverter:
                         f"{org_name} - {department}" if department else org_name
                     )
 
-                company_id = self.parser.find_text(
-                    org_element,
-                    "./efac:Company/cac:PartyLegalEntity/cbc:CompanyID",
-                    namespaces=self.parser.nsmap,
+                ubo_elements = org_element.findall(
+                    ".//efac:UltimateBeneficialOwner", namespaces=self.parser.nsmap
                 )
-                if company_id:
-                    organization.setdefault("additionalIdentifiers", []).append(
-                        {"id": company_id, "scheme": "CompanyID"}
+                for ubo_element in ubo_elements:
+                    ubo_id = self.parser.find_text(
+                        ubo_element, "./cbc:ID", namespaces=self.parser.nsmap
                     )
-
-                address_element = org_element.find(
-                    "./efac:Company/cac:PostalAddress", namespaces=self.parser.nsmap
-                )
-                if address_element is not None:
-                    organization["address"] = {
-                        "locality": self.parser.find_text(
-                            address_element,
-                            "./cbc:CityName",
-                            namespaces=self.parser.nsmap,
-                        ),
-                        "postalCode": self.parser.find_text(
-                            address_element,
-                            "./cbc:PostalZone",
-                            namespaces=self.parser.nsmap,
-                        ),
-                        "region": self.parser.find_text(
-                            address_element,
-                            "./cbc:CountrySubentity",
-                            namespaces=self.parser.nsmap,
-                        ),
-                        "country": self.convert_language_code(
-                            self.parser.find_text(
-                                address_element,
-                                "./cac:Country/cbc:IdentificationCode",
-                                namespaces=self.parser.nsmap,
-                            ),
-                            code_type="country",
-                        ),
-                    }
-
-                contact_point = self.fetch_bt502_contact_point(org_element)
-                if contact_point:
-                    organization["contactPoint"] = contact_point
-
-                listed_on_market = self.fetch_listed_on_regulated_market(org_element)
-                if listed_on_market is not None:
-                    organization.setdefault("details", {})[
-                        "listedOnRegulatedMarket"
-                    ] = listed_on_market
-
-                company_size = self.fetch_company_size(org_element)
-                if company_size:
-                    organization.setdefault("details", {})["scale"] = company_size
-
-                self.add_or_update_party(organizations, organization)
-
-            ubo_elements = org_element.findall(
-                ".//efac:UltimateBeneficialOwner", namespaces=self.parser.nsmap
-            )
-            for ubo_element in ubo_elements:
-                ubo_id = self.parser.find_text(
-                    ubo_element, "./cbc:ID", namespaces=self.parser.nsmap
-                )
-                if ubo_id:
-                    family_name = (
-                        self.parser.find_text(
-                            ubo_element,
-                            "./cbc:FamilyName",
-                            namespaces=self.parser.nsmap,
-                        )
-                        or ""
-                    )
-                    first_name = (
-                        self.parser.find_text(
-                            ubo_element, "./cbc:FirstName", namespaces=self.parser.nsmap
-                        )
-                        or ""
-                    )
-                    full_name = f"{first_name} {family_name}".strip()
-
-                    raw_nationality_code = self.parser.find_text(
-                        ubo_element,
-                        "./efac:Nationality/cbc:NationalityID",
-                        namespaces=self.parser.nsmap,
-                    )
-                    processed_nationality_code = (
-                        self.convert_language_code(raw_nationality_code, "country")
-                        if raw_nationality_code
-                        else None
-                    )
-
-                    ubo_info = {
-                        "id": ubo_id,
-                        "name": full_name,
-                        "nationality": processed_nationality_code,
-                    }
-                    phone_info = self.fetch_bt503_ubo_contact(ubo_element)
-                    if phone_info:
-                        ubo_info.update(phone_info)
-
-                    organization.setdefault("beneficialOwners", []).append(ubo_info)
+                    fetch_organisations_roles(ubo_id, ["beneficialOwner"])
 
         return organizations
 
@@ -1969,13 +1861,16 @@ class TEDtoOCDSConverter:
         if not found:
             self.tender.setdefault("documents", []).append(new_document)
 
-    def get_or_create_organization(self, parties, org_id):
+    def get_or_create_organization(parties, org_id, roles=None):
         for organization in parties:
             if organization["id"] == org_id:
-                if "roles" not in organization:
-                    organization["roles"] = []
+                if roles:
+                    for role in roles:
+                        if role not in organization.get("roles", []):
+                            organization.setdefault("roles", []).append(role)
                 return organization
-        new_organization = {"id": org_id, "roles": []}
+        # If not found, create a new organization
+        new_organization = {"id": org_id, "roles": roles if roles else []}
         parties.append(new_organization)
         return new_organization
 
@@ -3807,8 +3702,8 @@ class TEDtoOCDSConverter:
                 self.handle_tendering_party(contract_id, tender_id)
                 logger.debug(f"Processed contract {contract_id} with tender ID {tender_id}")
 
-    def fetch_organisations_roles(self, org_id, roles):
-        organization = self.get_or_create_organization(self.parties, org_id)
+    def fetch_organisations_roles(org_id, roles):
+        organization = get_or_create_organization(self.parties, org_id)
         if roles:
             for role in roles:
                 if role not in organization["roles"]:
@@ -4680,92 +4575,6 @@ class TEDtoOCDSConverter:
                 {"id": bid_id, "tenderers": [{"id": tenderer_id}]}
             )
 
-    def fetch_opt_301_tenderer_maincont(self, root_element):
-        notice_results = root_element.findall(
-            ".//efac:NoticeResult", namespaces=self.parser.nsmap
-        )
-        for notice_result in notice_results:
-            lot_tenders = notice_result.findall(
-                ".//efac:LotTender", namespaces=self.parser.nsmap
-            )
-            for lot_tender in lot_tenders:
-                tender_id = self.parser.find_text(
-                    lot_tender, "./cbc:ID", namespaces=self.parser.nsmap
-                )
-                subcontractors = lot_tender.findall(
-                    ".//efac:SubContractor", namespaces=self.parser.nsmap
-                )
-                for subcontractor in subcontractors:
-                    subcontractor_id = self.parser.find_text(
-                        subcontractor, "./cbc:ID", namespaces=self.parser.nsmap
-                    )
-                    main_contractors = subcontractor.findall(
-                        ".//efac:MainContractor", namespaces=self.parser.nsmap
-                    )
-                    for main_contractor in main_contractors:
-                        main_contractor_id = self.parser.find_text(
-                            main_contractor, "./cbc:ID", namespaces=self.parser.nsmap
-                        )
-
-                        if main_contractor_id:
-                            main_contractor_org = next(
-                                (
-                                    o
-                                    for o in self.parties
-                                    if o["id"] == main_contractor_id
-                                ),
-                                None,
-                            )
-                            if not main_contractor_org:
-                                main_contractor_org = {
-                                    "id": main_contractor_id,
-                                    "roles": ["tenderer"],
-                                }
-                                self.parties.append(main_contractor_org)
-                            else:
-                                if "tenderer" not in main_contractor_org.get(
-                                    "roles", []
-                                ):
-                                    main_contractor_org["roles"].append("tenderer")
-
-                        bid = next(
-                            (
-                                b
-                                for b in self.tender["bids"]["details"]
-                                if b["id"] == tender_id
-                            ),
-                            None,
-                        )
-                        if not bid:
-                            bid = {
-                                "id": tender_id,
-                                "subcontracting": {"subcontracts": []},
-                            }
-                            self.tender["bids"]["details"].append(bid)
-
-                        subcontract = next(
-                            (
-                                s
-                                for s in bid["subcontracting"]["subcontracts"]
-                                if s["subcontractor"]["id"] == subcontractor_id
-                            ),
-                            None,
-                        )
-                        if not subcontract:
-                            subcontract = {
-                                "id": str(
-                                    len(bid["subcontracting"]["subcontracts"]) + 1
-                                ),
-                                "subcontractor": {"id": subcontractor_id},
-                                "mainContractors": [],
-                            }
-                            bid["subcontracting"]["subcontracts"].append(subcontract)
-
-                        main_contractor_references = {"id": main_contractor_id}
-                        subcontract["mainContractors"].append(
-                            main_contractor_references
-                        )
-
     def fetch_opt_320_contract_tender_reference(self, root_element):
         settled_contracts = root_element.findall(
             ".//efac:NoticeResult/efac:SettledContract", namespaces=self.parser.nsmap
@@ -4879,7 +4688,7 @@ class TEDtoOCDSConverter:
         logger = logging.getLogger(__name__)
         parties = []
 
-    def add_or_update_party(self, parties, new_party):
+    def add_or_update_party(parties, new_party):
         for p in parties:
             if p["id"] == new_party["id"]:
                 p.update(new_party)
@@ -4929,7 +4738,7 @@ class TEDtoOCDSConverter:
     def convert_tender_to_ocds(self):
         root = self.parser.root
 
-        ocid = "blah"
+        ocid = "blah" 
         dispatch_datetime = self.get_dispatch_date_time()
         tender_title = self.parser.find_text(root, ".//cac:ProcurementProject/cbc:Name")
 
@@ -4937,98 +4746,94 @@ class TEDtoOCDSConverter:
         language = self.fetch_notice_language(root)
         self.tender.setdefault("bids", {}).setdefault("details", [])
 
-        try:
-            methods_to_call = [
-                self.fetch_bt710_bt711_bid_statistics,
-                self.fetch_bt712_complaints_statistics,
-                self.fetch_bt09_cross_border_law,
-                self.fetch_bt111_lot_buyer_categories,
-                self.fetch_bt766_dynamic_purchasing_system_lot,
-                self.fetch_bt766_dynamic_purchasing_system_part,
-                self.fetch_bt775_social_procurement,
-                self.fetch_bt06_lot_strategic_procurement,
-                self.fetch_bt539_award_criterion_type,
-                self.fetch_bt540_award_criterion_description,
-                self.fetch_bt541_award_criterion_fixed_number,
-                self.fetch_bt5421_award_criterion_number_weight,
-                self.fetch_bt5422_award_criterion_number_fixed,
-                self.fetch_bt5423_award_criterion_number_threshold,
-                self.fetch_bt543_award_criteria_complicated,
-                self.fetch_bt733_award_criteria_order_rationale,
-                self.fetch_bt734_award_criterion_name,
-                self.handle_bt14_and_bt707,
-                self.fetch_opp_050_buyers_group_lead,
-                self.fetch_opt_300_contract_signatory,
-                self.fetch_opt_301_tenderer_maincont,
-                self.fetch_bt773_subcontracting,
-                self.fetch_opt_310_tendering_party_id,
-                self.fetch_bt3202_contract_tender_reference,
-                self.fetch_bt746_organization_listed_market,
-                self.fetch_bt165_company_size,
-                self.fetch_bt633_natural_person_indicator,
-                self.fetch_bt47_participants,
-                self.fetch_bt5010_lot_financing,
-                self.fetch_bt5011_contract_financing,
-                self.fetch_bt508_buyer_profile,
-                self.fetch_bt60_lot_funding,
-                self.fetch_bt610_activity_entity,
-                self.fetch_bt740_contracting_entity,
-                self.fetch_opp_051_awarding_cpb_buyer,
-                self.fetch_opp_052_acquiring_cpb_buyer,
-                self.fetch_opt_030_service_type,
-                self.fetch_opt_170_tender_leader,
-                self.fetch_opt_301_lot_mediator,
-                self.fetch_opt_301_lot_review_org,
-                self.fetch_opt_301_part_review_org,
-                self.fetch_opt_300_buyer_technical_reference,
-                self.fetch_opt_301_add_info_provider,
-                self.fetch_opt_301_lot_employ_legis,
-                self.fetch_opt_301_lot_environ_legis,
-                self.fetch_opt_301_doc_provider,
-                self.fetch_opt_301_lot_review_info,
-                self.fetch_opt_301_lotresult_financing,
-                self.fetch_opt_322_lotresult_technical_identifier,
-                self.fetch_bt144_not_awarded_reason,
-                self.fetch_bt1451_winner_decision_date,
-                self.fetch_bt163_concession_value_description,
-                self.fetch_bt660_framework_re_estimated_value,
-                self.fetch_bt709_framework_maximum_value,
-                self.fetch_bt720_tender_value,
-                self.fetch_bt735_cvd_contract_type,
-                self.fetch_bt145_contract_conclusion_date,
-                self.fetch_bt150_contract_identifier,
-                self.fetch_bt5010_lot_financing,
-                self.fetch_bt5011_contract_financing,
-                self.fetch_opp_080_public_transport_distance,
-                self.fetch_opt_301_lot_tender_eval,
-                self.fetch_opt_301_part_tender_eval,
-                self.fetch_opt_301_part_mediator,
-                self.fetch_opt_301_part_review_info,
-                self.fetch_opt_301_part_review_org,
-                self.fetch_opt_301_part_doc_provider,
-                self.fetch_opt_301_part_add_info_provider,
-                self.fetch_opt_301_part_employ_legis,
-                self.fetch_opt_300_signatory_reference,
-                self.fetch_bt142_winner_chosen,
-                self.fetch_bt13713_lotresult,
-                self.fetch_bt13714_tender_lot_identifier,
-                self.fetch_bt171_tender_rank,
-                self.fetch_bt191_country_origin,
-                self.fetch_bt193_tender_variant,
-                self.fetch_bt3201_tender_identifier,
-                self.fetch_bt553_subcontracting_value,
-                self.fetch_bt554_subcontracting_description,
-                self.fetch_opt_320_lotresult_tender_reference,
-            ]
+        methods_to_call = [
+            self.fetch_bt710_bt711_bid_statistics,
+            self.fetch_bt712_complaints_statistics,
+            self.fetch_bt09_cross_border_law,
+            self.fetch_bt111_lot_buyer_categories,
+            self.fetch_bt766_dynamic_purchasing_system_lot,
+            self.fetch_bt766_dynamic_purchasing_system_part,
+            self.fetch_bt775_social_procurement,
+            self.fetch_bt06_lot_strategic_procurement,
+            self.fetch_bt539_award_criterion_type,
+            self.fetch_bt540_award_criterion_description,
+            self.fetch_bt541_award_criterion_fixed_number,
+            self.fetch_bt5421_award_criterion_number_weight,
+            self.fetch_bt5422_award_criterion_number_fixed,
+            self.fetch_bt5423_award_criterion_number_threshold,
+            self.fetch_bt543_award_criteria_complicated,
+            self.fetch_bt733_award_criteria_order_rationale,
+            self.fetch_bt734_award_criterion_name,
+            self.handle_bt14_and_bt707,
+            self.fetch_opp_050_buyers_group_lead,
+            self.fetch_opt_300_contract_signatory,
+            self.fetch_opt_301_tenderer_maincont,
+            self.fetch_bt773_subcontracting,
+            self.fetch_opt_310_tendering_party_id,
+            self.fetch_bt3202_contract_tender_reference,
+            self.fetch_bt746_organization_listed_market,
+            self.fetch_bt165_company_size,
+            self.fetch_bt633_natural_person_indicator,
+            self.fetch_bt47_participants,
+            self.fetch_bt5010_lot_financing,
+            self.fetch_bt5011_contract_financing,
+            self.fetch_bt508_buyer_profile,
+            self.fetch_bt60_lot_funding,
+            self.fetch_bt610_activity_entity,
+            self.fetch_bt740_contracting_entity,
+            self.fetch_opp_051_awarding_cpb_buyer,
+            self.fetch_opp_052_acquiring_cpb_buyer,
+            self.fetch_opt_030_service_type,
+            self.fetch_opt_170_tender_leader,
+            self.fetch_opt_301_lot_mediator,
+            self.fetch_opt_301_lot_review_org,
+            self.fetch_opt_301_part_review_org,
+            self.fetch_opt_300_buyer_technical_reference,
+            self.fetch_opt_301_add_info_provider,
+            self.fetch_opt_301_lot_employ_legis,
+            self.fetch_opt_301_lot_environ_legis,
+            self.fetch_opt_301_doc_provider,
+            self.fetch_opt_301_lot_review_info,
+            self.fetch_opt_301_lotresult_financing,
+            self.fetch_opt_322_lotresult_technical_identifier,
+            self.fetch_bt144_not_awarded_reason,
+            self.fetch_bt1451_winner_decision_date,
+            self.fetch_bt163_concession_value_description,
+            self.fetch_bt660_framework_re_estimated_value,
+            self.fetch_bt709_framework_maximum_value,
+            self.fetch_bt720_tender_value,
+            self.fetch_bt735_cvd_contract_type,
+            self.fetch_bt145_contract_conclusion_date,
+            self.fetch_bt150_contract_identifier,
+            self.fetch_bt5010_lot_financing,
+            self.fetch_bt5011_contract_financing,
+            self.fetch_opp_080_public_transport_distance,
+            self.fetch_opt_301_lot_tender_eval,
+            self.fetch_opt_301_part_tender_eval,
+            self.fetch_opt_301_part_mediator,
+            self.fetch_opt_301_part_review_info,
+            self.fetch_opt_301_part_review_org,
+            self.fetch_opt_301_part_doc_provider,
+            self.fetch_opt_301_part_add_info_provider,
+            self.fetch_opt_301_part_employ_legis,
+            self.fetch_opt_300_signatory_reference,
+            self.fetch_bt142_winner_chosen,
+            self.fetch_bt13713_lotresult,
+            self.fetch_bt13714_tender_lot_identifier,
+            self.fetch_bt171_tender_rank,
+            self.fetch_bt191_country_origin,
+            self.fetch_bt193_tender_variant,
+            self.fetch_bt3201_tender_identifier,
+            self.fetch_bt553_subcontracting_value,
+            self.fetch_bt554_subcontracting_description,
+            self.fetch_opt_320_lotresult_tender_reference,
+        ]
 
-            for method in methods_to_call:
-                try:
-                    method(root)
-                except Exception as e:
-                    logging.error(f"Error in {method.__name__}: {e}")
-
-        except Exception as e:
-            logging.error(f"Error fetching data: {e}")
+        for method in methods_to_call:
+            try:
+                method(root)
+            except Exception as e:
+                logging.error(f"Error in {method.__name__}: {e}")
 
         try:
             activities = self.parse_activity_authority(root)
