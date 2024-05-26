@@ -415,9 +415,9 @@ class TEDtoOCDSConverter:
                 self.update_eu_funder("EU-funds")
 
     def fetch_opt_301_lotresult_financing(self, root_element):
-        """
-        Fetches OPT-301: Financing Party (ID reference) for LotResult.
-        """
+        logger.info(
+            "Fetching OPT-301 LotResult Financing Party (ID reference)"
+        )
         lot_results = root_element.findall(
             ".//efac:LotResult", namespaces=self.parser.nsmap
         )
@@ -726,7 +726,6 @@ class TEDtoOCDSConverter:
             )
             buyers.append(buyer_uri)
 
-        for uri in buyers:
             org_id = self.parser.find_text(
                 profile,
                 "./cac:Party/cac:PartyIdentification/cbc:ID",
@@ -734,13 +733,13 @@ class TEDtoOCDSConverter:
             )
             organization = next((o for o in self.parties if o["id"] == org_id), None)
             if organization:
-                organization.setdefault("details", {}).update({"buyerProfile": uri})
+                organization.setdefault("details", {}).update({"buyerProfile": buyer_uri})
             else:
                 organization = {
                     "id": org_id,
                     "roles": ["buyer"],
                     "details": {
-                        "buyerProfile": uri,
+                        "buyerProfile": buyer_uri,
                     },
                 }
                 self.parties.append(organization)
@@ -763,7 +762,6 @@ class TEDtoOCDSConverter:
                     }
                 )
 
-        # Map the activity to the organization
         for activity in activities:
             org_id = self.parser.find_text(
                 party,
@@ -3178,13 +3176,13 @@ class TEDtoOCDSConverter:
         for lot in lots:
             tender_eval_id = self.parser.find_text(
                 lot,
-                "./cac:TenderingTerms/cac:TenderEvaluationParty/cac:PartyIdentification/cbc:ID",
+                "./cac:TenderingTerms/cac:TenderRecipientParty/cac:PartyIdentification/cbc:ID",
                 namespaces=self.parser.nsmap,
             )
             if tender_eval_id:
                 org = self.get_or_create_organization(self.parties, tender_eval_id)
-                if "evaluationBody" not in org["roles"]:
-                    org["roles"].append("evaluationBody")
+                if "submissionReceiptBody" not in org["roles"]:
+                    org["roles"].append("submissionReceiptBody")
 
     def fetch_opt_301_lot_review_info(self, root_element):
         logger.info(
@@ -3822,6 +3820,12 @@ class TEDtoOCDSConverter:
         }
         self.awards.append(new_award)
 
+    def assign_supplier_to_contract(self, contract_id, supplier_id):
+        for award in self.awards:
+            for contract in award.get("contracts", []):
+                if contract["id"] == contract_id:
+                    self.add_supplier_to_award(award["id"], supplier_id)
+
     def add_supplier_to_award(self, award_id, supplier_id):
         award = next((a for a in self.awards if a["id"] == award_id), None)
         if award:
@@ -3829,12 +3833,6 @@ class TEDtoOCDSConverter:
                 award["suppliers"] = []
             if not any(s["id"] == supplier_id for s in award["suppliers"]):
                 award["suppliers"].append({"id": supplier_id})
-
-    def assign_supplier_to_contract(self, contract_id, supplier_id):
-        for award in self.awards:
-            for contract in award.get("contracts", []):
-                if contract["id"] == contract_id:
-                    self.add_supplier_to_award(award["id"], supplier_id)
 
     def fetch_bt660_framework_re_estimated_value(self, root_element):
         lot_results = root_element.findall(
@@ -4921,8 +4919,9 @@ class TEDtoOCDSConverter:
         language = self.fetch_notice_language(root)
         self.tender.setdefault("bids", {}).setdefault("details", [])
 
-        # Fetching all the required details
+        # Collecting details
         try:
+            # Fetch methods to extract specific information
             self.fetch_bt710_bt711_bid_statistics(root)
             self.fetch_bt712_complaints_statistics(root)
             self.fetch_bt09_cross_border_law(root)
@@ -4968,6 +4967,9 @@ class TEDtoOCDSConverter:
             self.fetch_opt_301_add_info_provider(root)
             self.fetch_opt_301_lot_employ_legis(root)
             self.fetch_opt_301_lot_environ_legis(root)
+            self.fetch_opt_301_doc_provider(root)
+            self.fetch_opt_301_lot_review_info(root)
+            self.fetch_opt_301_lotresult_financing(root)
             self.fetch_opt_322_lotresult_technical_identifier(root)
             self.fetch_bt144_not_awarded_reason(root)
             self.fetch_bt1451_winner_decision_date(root)
