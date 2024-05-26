@@ -215,6 +215,7 @@ class TEDtoOCDSConverter:
                 )
 
     def fetch_opt_300_contract_signatory(self, root_element):
+        logger.info("Fetching OPT-300 Contract Signatory Identifier Reference")
         signatory_parties = root_element.findall(
             ".//efac:NoticeResult/efac:SettledContract/cac:SignatoryParty",
             namespaces=self.parser.nsmap,
@@ -229,6 +230,7 @@ class TEDtoOCDSConverter:
                 org = self.get_or_create_organization(self.parties, signatory_id)
                 if "buyer" not in org["roles"]:
                     org["roles"].append("buyer")
+                    logger.debug(f"Added buyer role to organization {signatory_id}")
                 org_name = self.parser.find_text(
                     root_element,
                     f".//efac:Organization[efac:Company/cac:PartyIdentification/cbc:ID='{signatory_id}']/efac:Company/cac:PartyName/cbc:Name",
@@ -242,6 +244,7 @@ class TEDtoOCDSConverter:
                 for award in self.awards:
                     if contract_id in [c["id"] for c in award.get("contracts", [])]:
                         award.setdefault("buyers", []).append({"id": signatory_id})
+                        logger.debug(f"Added buyer reference {signatory_id} to award.")
 
     def fetch_bt712_complaints_statistics(self, root_element):
         notice_results = root_element.xpath(
@@ -685,6 +688,7 @@ class TEDtoOCDSConverter:
                         "roles": ["selectedParticipant"],
                     }
                 )
+                logger.debug(f"Added selectedParticipant role to organization {party_id}")
                 for tender_lot in self.tender["lots"]:
                     if tender_lot["id"] == lot_id:
                         tender_lot.setdefault("designContest", {}).setdefault(
@@ -864,6 +868,7 @@ class TEDtoOCDSConverter:
             organization = self.get_or_create_organization(self.parties, org_id)
             if "leadBuyer" not in organization["roles"]:
                 organization["roles"].append("leadBuyer")
+                logger.debug(f"Added leadBuyer role to organization {org_id}")
 
     def fetch_opp_051_awarding_cpb_buyer(self, root_element):
         logger.info("Fetching OPP-051 Organization Awarding CPB Buyer Indicator")
@@ -1007,6 +1012,7 @@ class TEDtoOCDSConverter:
                         org["roles"].append("buyer")
 
     def fetch_opt_301_tenderer_maincont(self, root_element):
+        logger.info("Fetching OPT-301 Main Contractor ID Reference")
         notice_results = root_element.findall(
             ".//efac:NoticeResult", namespaces=self.parser.nsmap
         )
@@ -1034,63 +1040,83 @@ class TEDtoOCDSConverter:
                         )
 
                         if main_contractor_id:
-                            main_contractor_org = next(
-                                (
-                                    o
-                                    for o in self.parties
-                                    if o["id"] == main_contractor_id
-                                ),
-                                None,
-                            )
-                            if not main_contractor_org:
-                                main_contractor_org = {
-                                    "id": main_contractor_id,
-                                    "roles": ["tenderer"],
-                                }
-                                self.parties.append(main_contractor_org)
-                            else:
-                                if "tenderer" not in main_contractor_org.get(
-                                    "roles", []
-                                ):
-                                    main_contractor_org["roles"].append("tenderer")
+                            main_contractor_org = self.get_or_create_organization(self.parties, main_contractor_id)
+                            if "tenderer" not in main_contractor_org["roles"]:
+                                main_contractor_org["roles"].append("tenderer")
+                                logger.debug(f"Added tenderer role to main contractor {main_contractor_id}")
 
-                        bid = next(
-                            (
-                                b
-                                for b in self.tender["bids"]["details"]
-                                if b["id"] == tender_id
-                            ),
-                            None,
-                        )
-                        if not bid:
-                            bid = {
-                                "id": tender_id,
-                                "subcontracting": {"subcontracts": []},
-                            }
-                            self.tender["bids"]["details"].append(bid)
+                            bid = self.add_or_update_bid_with_subcontractor(tender_id, subcontractor_id, main_contractor_id)
+                            logger.debug(f"Updated bid {tender_id} with main contractor {main_contractor_id}")
 
-                        subcontract = next(
-                            (
-                                s
-                                for s in bid["subcontracting"]["subcontracts"]
-                                if s["subcontractor"]["id"] == subcontractor_id
-                            ),
-                            None,
-                        )
-                        if not subcontract:
-                            subcontract = {
-                                "id": str(
-                                    len(bid["subcontracting"]["subcontracts"]) + 1
-                                ),
-                                "subcontractor": {"id": subcontractor_id},
-                                "mainContractors": [],
-                            }
-                            bid["subcontracting"]["subcontracts"].append(subcontract)
+    def add_or_update_bid_with_subcontractor(self, tender_id, subcontractor_id, main_contractor_id):
+        bid = next(
+            (
+                b
+                for b in self.tender["bids"]["details"]
+                if b["id"] == tender_id
+            ),
+            None,
+        )
+        if not bid:
+            bid = {
+                "id": tender_id,
+                "subcontracting": {"subcontracts": []},
+            }
+            self.tender["bids"]["details"].append(bid)
 
-                        main_contractor_references = {"id": main_contractor_id}
-                        subcontract["mainContractors"].append(
-                            main_contractor_references
-                        )
+        subcontract = next(
+            (
+                s
+                for s in bid["subcontracting"]["subcontracts"]
+                if s.get("subcontractor", {}).get("id") == subcontractor_id
+            ),
+            None,
+        )
+        if not subcontract:
+            subcontract = {
+                "id": str(
+                    len(bid["subcontracting"]["subcontracts"]) + 1
+                ),
+                "subcontractor": {"id": subcontractor_id},
+                "mainContractors": [],
+            }
+            bid["subcontracting"]["subcontracts"].append(subcontract)
+
+        main_contractor_references = {"id": main_contractor_id}
+        subcontract["mainContractors"].append(main_contractor_references)
+        return bid
+
+    def fetch_opt_301_contract_signatory(self, root_element):
+        logger.info("Fetching OPT-301 Contract Signatory Identifier Reference")
+        signatory_parties = root_element.findall(
+            ".//efac:NoticeResult/efac:SettledContract/cac:SignatoryParty",
+            namespaces=self.parser.nsmap,
+        )
+        for signatory_party in signatory_parties:
+            signatory_id = self.parser.find_text(
+                signatory_party,
+                "./cac:PartyIdentification/cbc:ID",
+                namespaces=self.parser.nsmap,
+            )
+            if signatory_id:
+                org = self.get_or_create_organization(self.parties, signatory_id)
+                if "buyer" not in org["roles"]:
+                    org["roles"].append("buyer")
+                    logger.debug(f"Added buyer role to organization {signatory_id}")
+                org_name = self.parser.find_text(
+                    root_element,
+                    f".//efac:Organization[efac:Company/cac:PartyIdentification/cbc:ID='{signatory_id}']/efac:Company/cac:PartyName/cbc:Name",
+                    namespaces=self.parser.nsmap,
+                )
+                if org_name:
+                    org["name"] = org_name
+                contract_id = self.parser.find_text(
+                    signatory_party, "./../../cbc:ID", namespaces=self.parser.nsmap
+                )
+                for award in self.awards:
+                    if contract_id in [c["id"] for c in award.get("contracts", [])]:
+                        award.setdefault("buyers", []).append({"id": signatory_id})
+                        logger.debug(f"Added buyer reference {signatory_id} to award.")
 
     def fetch_opt_310_tender(self, root_element):
         if "bids" not in self.tender:
@@ -1943,14 +1969,14 @@ class TEDtoOCDSConverter:
         if not found:
             self.tender.setdefault("documents", []).append(new_document)
 
-    def get_or_create_organization(self, organizations, org_id):
-        for organization in organizations:
+    def get_or_create_organization(self, parties, org_id):
+        for organization in parties:
             if organization["id"] == org_id:
                 if "roles" not in organization:
                     organization["roles"] = []
                 return organization
         new_organization = {"id": org_id, "roles": []}
-        organizations.append(new_organization)
+        parties.append(new_organization)
         return new_organization
 
     @staticmethod
@@ -3095,8 +3121,7 @@ class TEDtoOCDSConverter:
             "Fetching OPT-301 Part ReviewOrg Review Organization Technical Identifier Reference"
         )
         parts = root_element.findall(
-            ".//cac:ProcurementProjectLot[cbc:ID/@schemeName='Part']",
-            namespaces=self.parser.nsmap,
+            ".//cac:ProcurementProjectLot", namespaces=self.parser.nsmap
         )
         for part in parts:
             review_org_id = self.parser.find_text(
@@ -3114,8 +3139,7 @@ class TEDtoOCDSConverter:
             "Fetching OPT-301 Part Mediator Mediator Technical Identifier Reference"
         )
         parts = root_element.findall(
-            ".//cac:ProcurementProjectLot[cbc:ID/@schemeName='Part']",
-            namespaces=self.parser.nsmap,
+            ".//cac:ProcurementProjectLot", namespaces=self.parser.nsmap
         )
         for part in parts:
             mediator_id = self.parser.find_text(
@@ -3133,8 +3157,7 @@ class TEDtoOCDSConverter:
             "Fetching OPT-301 Part ReviewInfo Review Info Provider Technical Identifier Reference"
         )
         parts = root_element.findall(
-            ".//cac:ProcurementProjectLot[cbc:ID/@schemeName='Part']",
-            namespaces=self.parser.nsmap,
+            ".//cac:ProcurementProjectLot", namespaces=self.parser.nsmap
         )
         for part in parts:
             review_info_id = self.parser.find_text(
@@ -3152,8 +3175,7 @@ class TEDtoOCDSConverter:
             "Fetching OPT-301 Part TenderEval Tender Evaluator Technical Identifier Reference"
         )
         parts = root_element.findall(
-            ".//cac:ProcurementProjectLot[cbc:ID/@schemeName='Part']",
-            namespaces=self.parser.nsmap,
+            ".//cac:ProcurementProjectLot", namespaces=self.parser.nsmap
         )
         for part in parts:
             tender_eval_id = self.parser.find_text(
@@ -3391,6 +3413,13 @@ class TEDtoOCDSConverter:
                 )
                 self.add_or_update_award(result_id)
                 self.add_or_update_award_related_lots(result_id, [lot_id])
+
+    def add_or_update_award_related_lots(self, award_id, related_lots):
+        award = next((a for a in self.awards if a["id"] == award_id), None)
+        if award:
+            if "relatedLots" not in award:
+                award["relatedLots"] = []
+            award["relatedLots"].extend(related_lots)
 
     def fetch_bt13714_tender_lot_identifier(self, root_element):
         lot_tenders = root_element.findall(
@@ -3776,6 +3805,7 @@ class TEDtoOCDSConverter:
             if tender_id and contract_id:
                 self.add_or_update_contract_related_bids(contract_id, tender_id)
                 self.handle_tendering_party(contract_id, tender_id)
+                logger.debug(f"Processed contract {contract_id} with tender ID {tender_id}")
 
     def fetch_organisations_roles(self, org_id, roles):
         organization = self.get_or_create_organization(self.parties, org_id)
@@ -3794,6 +3824,7 @@ class TEDtoOCDSConverter:
             self.get_contracts().append(contract)
         if tender_id not in contract["relatedBids"]:
             contract["relatedBids"].append(tender_id)
+        logger.debug(f"Added contract {contract_id} with related tender ID {tender_id}")
 
     def add_or_update_contract(self, contract_id, contract_info):
         found = False
@@ -4430,29 +4461,20 @@ class TEDtoOCDSConverter:
         )
         for lot in lots:
             criteria_elements = lot.xpath(
-                ".//cac:TenderingTerms/cac:AwardingTerms/cac:AwardingCriterion/cac:SubordinateAwardingCriterion/ext:UBLExtensions/ext:UBLExtension/ext:ExtensionContent/efext:EformsExtension/efac:AwardCriterionParameter[efbc:ParameterCode/@listName='number-fixed']/efbc:ParameterCode",
+                ".//cac:TenderingTerms/cac:AwardingTerms/cac:AwardingCriterion"
+                "/cac:SubordinateAwardingCriterion"
+                "/ext:UBLExtensions/ext:UBLExtension/ext:ExtensionContent/efext:EformsExtension"
+                "/efac:AwardCriterionParameter[efbc:ParameterCode/@listName='number-fixed']/efbc:ParameterNumeric",
                 namespaces=self.parser.nsmap,
             )
-            lot_id = self.parser.find_text(
-                lot, "./cbc:ID", namespaces=self.parser.nsmap
-            )
+            lot_id = self.parser.find_text(lot, "./cbc:ID", namespaces=self.parser.nsmap)
             for criterion in criteria_elements:
-                fixed = self.parser.find_text(criterion, "./efbc:ParameterCode")
-                if fixed:
+                number = self.parser.find_text(criterion, "./efbc:ParameterNumeric")
+                if number:
                     lot_info = {
                         "id": lot_id,
                         "awardCriteria": {
-                            "criteria": [
-                                {
-                                    "numbers": [
-                                        {
-                                            "fixed": self.map_award_criterion_number_fixed(
-                                                fixed
-                                            )
-                                        }
-                                    ]
-                                }
-                            ]
+                            "criteria": [{"numbers": [{"number": float(number)}]}]
                         },
                     }
                     self.add_or_update_lot(self.tender["lots"], lot_info)
@@ -4779,8 +4801,10 @@ class TEDtoOCDSConverter:
                     org = self.get_or_create_organization(self.parties, tenderer_id)
                     if "supplier" not in org["roles"]:
                         org["roles"].append("supplier")
+                        logger.debug(f"Added supplier role to organization {tenderer_id}")
                     if "tenderer" not in org["roles"]:
                         org["roles"].append("tenderer")
+                        logger.debug(f"Added tenderer role to organization {tenderer_id}")
                     self.assign_supplier_to_contract(contract_id, tenderer_id)
 
     def fetch_bt746_organization_listed_market(self, root_element):
@@ -4856,18 +4880,12 @@ class TEDtoOCDSConverter:
         parties = []
 
     def add_or_update_party(self, parties, new_party):
-        existing_party = next((p for p in parties if p["id"] == new_party["id"]), None)
-        if existing_party:
-            for key, value in new_party.items():
-                if key == "roles":
-                    existing_party["roles"] = list(
-                        set(existing_party.get("roles", []) + value)
-                    )
-                else:
-                    existing_party[key] = value
-        else:
-            new_party.setdefault("roles", [])
-            parties.append(new_party)
+        for p in parties:
+            if p["id"] == new_party["id"]:
+                p.update(new_party)
+                return p
+        parties.append(new_party)
+        return new_party
 
     def fetch_bt145_contract_conclusion_date(self, root_element):
         settled_contracts = root_element.findall(
@@ -4919,89 +4937,96 @@ class TEDtoOCDSConverter:
         language = self.fetch_notice_language(root)
         self.tender.setdefault("bids", {}).setdefault("details", [])
 
-        # Collecting details
         try:
-            # Fetch methods to extract specific information
-            self.fetch_bt710_bt711_bid_statistics(root)
-            self.fetch_bt712_complaints_statistics(root)
-            self.fetch_bt09_cross_border_law(root)
-            self.fetch_bt111_lot_buyer_categories(root)
-            self.fetch_bt766_dynamic_purchasing_system_lot(root)
-            self.fetch_bt766_dynamic_purchasing_system_part(root)
-            self.fetch_bt775_social_procurement(root)
-            self.fetch_bt06_lot_strategic_procurement(root)
-            self.fetch_bt539_award_criterion_type(root)
-            self.fetch_bt540_award_criterion_description(root)
-            self.fetch_bt541_award_criterion_fixed_number(root)
-            self.fetch_bt5421_award_criterion_number_weight(root)
-            self.fetch_bt5422_award_criterion_number_fixed(root)
-            self.fetch_bt5423_award_criterion_number_threshold(root)
-            self.fetch_bt543_award_criteria_complicated(root)
-            self.fetch_bt733_award_criteria_order_rationale(root)
-            self.fetch_bt734_award_criterion_name(root)
-            self.handle_bt14_and_bt707(root)
-            self.fetch_opp_050_buyers_group_lead(root)
-            self.fetch_opt_300_contract_signatory(root)
-            self.fetch_opt_301_tenderer_maincont(root)
-            self.fetch_bt773_subcontracting(root)
-            self.fetch_opt_310_tendering_party_id(root)
-            self.fetch_bt3202_contract_tender_reference(root)
-            self.fetch_bt746_organization_listed_market(root)
-            self.fetch_bt165_company_size(root)
-            self.fetch_bt633_natural_person_indicator(root)
-            self.fetch_bt47_participants(root)
-            self.fetch_bt5010_lot_financing(root)
-            self.fetch_bt5011_contract_financing(root)
-            self.fetch_bt508_buyer_profile(root)
-            self.fetch_bt60_lot_funding(root)
-            self.fetch_bt610_activity_entity(root)
-            self.fetch_bt740_contracting_entity(root)
-            self.fetch_opp_051_awarding_cpb_buyer(root)
-            self.fetch_opp_052_acquiring_cpb_buyer(root)
-            self.fetch_opt_030_service_type(root)
-            self.fetch_opt_170_tender_leader(root)
-            self.fetch_opt_301_lot_mediator(root)
-            self.fetch_opt_301_lot_review_org(root)
-            self.fetch_opt_301_part_review_org(root)
-            self.fetch_opt_300_buyer_technical_reference(root)
-            self.fetch_opt_301_add_info_provider(root)
-            self.fetch_opt_301_lot_employ_legis(root)
-            self.fetch_opt_301_lot_environ_legis(root)
-            self.fetch_opt_301_doc_provider(root)
-            self.fetch_opt_301_lot_review_info(root)
-            self.fetch_opt_301_lotresult_financing(root)
-            self.fetch_opt_322_lotresult_technical_identifier(root)
-            self.fetch_bt144_not_awarded_reason(root)
-            self.fetch_bt1451_winner_decision_date(root)
-            self.fetch_bt163_concession_value_description(root)
-            self.fetch_bt660_framework_re_estimated_value(root)
-            self.fetch_bt709_framework_maximum_value(root)
-            self.fetch_bt720_tender_value(root)
-            self.fetch_bt735_cvd_contract_type(root)
-            self.fetch_bt145_contract_conclusion_date(root)
-            self.fetch_bt150_contract_identifier(root)
-            self.fetch_bt5010_lot_financing(root)
-            self.fetch_bt5011_contract_financing(root)
-            self.fetch_opp_080_public_transport_distance(root)
-            self.fetch_opt_301_lot_tender_eval(root)
-            self.fetch_opt_301_part_tender_eval(root)
-            self.fetch_opt_301_part_mediator(root)
-            self.fetch_opt_301_part_review_info(root)
-            self.fetch_opt_301_part_review_org(root)
-            self.fetch_opt_301_part_doc_provider(root)
-            self.fetch_opt_301_part_add_info_provider(root)
-            self.fetch_opt_301_part_employ_legis(root)
-            self.fetch_opt_300_signatory_reference(root)
-            self.fetch_bt142_winner_chosen(root)
-            self.fetch_bt13713_lotresult(root)
-            self.fetch_bt13714_tender_lot_identifier(root)
-            self.fetch_bt171_tender_rank(root)
-            self.fetch_bt191_country_origin(root)
-            self.fetch_bt193_tender_variant(root)
-            self.fetch_bt3201_tender_identifier(root)
-            self.fetch_bt553_subcontracting_value(root)
-            self.fetch_bt554_subcontracting_description(root)
-            self.fetch_opt_320_lotresult_tender_reference(root)
+            methods_to_call = [
+                self.fetch_bt710_bt711_bid_statistics,
+                self.fetch_bt712_complaints_statistics,
+                self.fetch_bt09_cross_border_law,
+                self.fetch_bt111_lot_buyer_categories,
+                self.fetch_bt766_dynamic_purchasing_system_lot,
+                self.fetch_bt766_dynamic_purchasing_system_part,
+                self.fetch_bt775_social_procurement,
+                self.fetch_bt06_lot_strategic_procurement,
+                self.fetch_bt539_award_criterion_type,
+                self.fetch_bt540_award_criterion_description,
+                self.fetch_bt541_award_criterion_fixed_number,
+                self.fetch_bt5421_award_criterion_number_weight,
+                self.fetch_bt5422_award_criterion_number_fixed,
+                self.fetch_bt5423_award_criterion_number_threshold,
+                self.fetch_bt543_award_criteria_complicated,
+                self.fetch_bt733_award_criteria_order_rationale,
+                self.fetch_bt734_award_criterion_name,
+                self.handle_bt14_and_bt707,
+                self.fetch_opp_050_buyers_group_lead,
+                self.fetch_opt_300_contract_signatory,
+                self.fetch_opt_301_tenderer_maincont,
+                self.fetch_bt773_subcontracting,
+                self.fetch_opt_310_tendering_party_id,
+                self.fetch_bt3202_contract_tender_reference,
+                self.fetch_bt746_organization_listed_market,
+                self.fetch_bt165_company_size,
+                self.fetch_bt633_natural_person_indicator,
+                self.fetch_bt47_participants,
+                self.fetch_bt5010_lot_financing,
+                self.fetch_bt5011_contract_financing,
+                self.fetch_bt508_buyer_profile,
+                self.fetch_bt60_lot_funding,
+                self.fetch_bt610_activity_entity,
+                self.fetch_bt740_contracting_entity,
+                self.fetch_opp_051_awarding_cpb_buyer,
+                self.fetch_opp_052_acquiring_cpb_buyer,
+                self.fetch_opt_030_service_type,
+                self.fetch_opt_170_tender_leader,
+                self.fetch_opt_301_lot_mediator,
+                self.fetch_opt_301_lot_review_org,
+                self.fetch_opt_301_part_review_org,
+                self.fetch_opt_300_buyer_technical_reference,
+                self.fetch_opt_301_add_info_provider,
+                self.fetch_opt_301_lot_employ_legis,
+                self.fetch_opt_301_lot_environ_legis,
+                self.fetch_opt_301_doc_provider,
+                self.fetch_opt_301_lot_review_info,
+                self.fetch_opt_301_lotresult_financing,
+                self.fetch_opt_322_lotresult_technical_identifier,
+                self.fetch_bt144_not_awarded_reason,
+                self.fetch_bt1451_winner_decision_date,
+                self.fetch_bt163_concession_value_description,
+                self.fetch_bt660_framework_re_estimated_value,
+                self.fetch_bt709_framework_maximum_value,
+                self.fetch_bt720_tender_value,
+                self.fetch_bt735_cvd_contract_type,
+                self.fetch_bt145_contract_conclusion_date,
+                self.fetch_bt150_contract_identifier,
+                self.fetch_bt5010_lot_financing,
+                self.fetch_bt5011_contract_financing,
+                self.fetch_opp_080_public_transport_distance,
+                self.fetch_opt_301_lot_tender_eval,
+                self.fetch_opt_301_part_tender_eval,
+                self.fetch_opt_301_part_mediator,
+                self.fetch_opt_301_part_review_info,
+                self.fetch_opt_301_part_review_org,
+                self.fetch_opt_301_part_doc_provider,
+                self.fetch_opt_301_part_add_info_provider,
+                self.fetch_opt_301_part_employ_legis,
+                self.fetch_opt_300_signatory_reference,
+                self.fetch_bt142_winner_chosen,
+                self.fetch_bt13713_lotresult,
+                self.fetch_bt13714_tender_lot_identifier,
+                self.fetch_bt171_tender_rank,
+                self.fetch_bt191_country_origin,
+                self.fetch_bt193_tender_variant,
+                self.fetch_bt3201_tender_identifier,
+                self.fetch_bt553_subcontracting_value,
+                self.fetch_bt554_subcontracting_description,
+                self.fetch_opt_320_lotresult_tender_reference,
+            ]
+
+            for method in methods_to_call:
+                try:
+                    method(root)
+                except Exception as e:
+                    logging.error(f"Error in {method.__name__}: {e}")
+
         except Exception as e:
             logging.error(f"Error fetching data: {e}")
 
@@ -5071,6 +5096,8 @@ class TEDtoOCDSConverter:
             if "roles" not in party:
                 party["roles"] = []
 
+        logging.info(f"Parties structure before cleaning: {self.parties}")
+
         release = {
             "id": str(uuid.uuid4()),
             "ocid": ocid,
@@ -5109,7 +5136,10 @@ class TEDtoOCDSConverter:
         }
 
         cleaned_release = self.clean_release_structure(release)
+
         logging.info("Conversion to OCDS format completed.")
+        logging.info(f"Final release structure: {cleaned_release}")
+
         return cleaned_release
 
 
