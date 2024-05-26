@@ -227,10 +227,7 @@ class TEDtoOCDSConverter:
                 namespaces=self.parser.nsmap,
             )
             if signatory_id:
-                org = self.get_or_create_organization(self.parties, signatory_id)
-                if "buyer" not in org["roles"]:
-                    org["roles"].append("buyer")
-                    logger.debug(f"Added buyer role to organization {signatory_id}")
+                org = self.get_or_create_organization(self.parties, signatory_id, roles=["buyer"])
                 org_name = self.parser.find_text(
                     root_element,
                     f".//efac:Organization[efac:Company/cac:PartyIdentification/cbc:ID='{signatory_id}']/efac:Company/cac:PartyName/cbc:Name",
@@ -244,7 +241,6 @@ class TEDtoOCDSConverter:
                 for award in self.awards:
                     if contract_id in [c["id"] for c in award.get("contracts", [])]:
                         award.setdefault("buyers", []).append({"id": signatory_id})
-                        logger.debug(f"Added buyer reference {signatory_id} to award.")
 
     def fetch_bt712_complaints_statistics(self, root_element):
         notice_results = root_element.xpath(
@@ -1346,17 +1342,17 @@ class TEDtoOCDSConverter:
     def fetch_bt500_company_organization(self, root_element):
         organizations = []
         organization_elements = root_element.findall(
-            ".//efac:Organizations/efac:Organization", namespaces=self.parser.nsmap
+            ".//efac:Organization", namespaces=self.parser.nsmap
         )
 
         for org_element in organization_elements:
             org_id = self.parser.find_text(
-                org_element,
-                "./efac:Company/cac:PartyIdentification/cbc:ID",
-                namespaces=self.parser.nsmap,
+                    org_element,
+                    "./efac:Company/cac:PartyIdentification/cbc:ID",
+                    namespaces=self.parser.nsmap,
             )
             if org_id:
-                organization = get_or_create_organization(organizations, org_id)
+                organization = self.get_or_create_organization(self.parties, org_id)
                 org_name = self.parser.find_text(
                     org_element,
                     "./efac:Company/cac:PartyName/cbc:Name",
@@ -1372,6 +1368,53 @@ class TEDtoOCDSConverter:
                         f"{org_name} - {department}" if department else org_name
                     )
 
+                address_element = org_element.find(
+                    "./efac:Company/cac:PostalAddress", namespaces=self.parser.nsmap
+                )
+                if address_element is not None:
+                    organization["address"] = {
+                        "locality": self.parser.find_text(
+                            address_element,
+                            "./cbc:CityName",
+                            namespaces=self.parser.nsmap,
+                        ),
+                        "postalCode": self.parser.find_text(
+                            address_element,
+                            "./cbc:PostalZone",
+                            namespaces=self.parser.nsmap,
+                        ),
+                        "region": self.parser.find_text(
+                            address_element,
+                            "./cbc:CountrySubentity",
+                            namespaces=self.parser.nsmap,
+                        ),
+                        "country": self.convert_language_code(
+                            self.parser.find_text(
+                                address_element,
+                                "./cac:Country/cbc:IdentificationCode",
+                                namespaces=self.parser.nsmap,
+                            ),
+                            code_type="country",
+                        ),
+                    }
+
+                contact_point = self.fetch_bt502_contact_point(org_element)
+                if contact_point:
+                    organization["contactPoint"] = contact_point
+
+                listed_on_market = self.fetch_listed_on_regulated_market(org_element)
+                if listed_on_market is not None:
+                    organization.setdefault("details", {})[
+                        "listedOnRegulatedMarket"
+                    ] = listed_on_market
+
+                company_size = self.fetch_company_size(org_element)
+                if company_size:
+                    organization.setdefault("details", {})["scale"] = company_size
+
+                self.add_or_update_party(organizations, organization)
+
+                # Beneficial Owners
                 ubo_elements = org_element.findall(
                     ".//efac:UltimateBeneficialOwner", namespaces=self.parser.nsmap
                 )
@@ -1379,7 +1422,44 @@ class TEDtoOCDSConverter:
                     ubo_id = self.parser.find_text(
                         ubo_element, "./cbc:ID", namespaces=self.parser.nsmap
                     )
-                    fetch_organisations_roles(ubo_id, ["beneficialOwner"])
+                    if ubo_id:
+                        family_name = (
+                            self.parser.find_text(
+                                ubo_element,
+                                "./cbc:FamilyName",
+                                namespaces=self.parser.nsmap,
+                            )
+                            or ""
+                        )
+                        first_name = (
+                            self.parser.find_text(
+                                ubo_element, "./cbc:FirstName", namespaces=self.parser.nsmap
+                            )
+                            or ""
+                        )
+                        full_name = f"{first_name} {family_name}".strip()
+
+                        raw_nationality_code = self.parser.find_text(
+                            ubo_element,
+                            "./efac:Nationality/cbc:NationalityID",
+                            namespaces=self.parser.nsmap,
+                        )
+                        processed_nationality_code = (
+                            self.convert_language_code(raw_nationality_code, "country")
+                            if raw_nationality_code
+                            else None
+                        )
+
+                        ubo_info = {
+                            "id": ubo_id,
+                            "name": full_name,
+                            "nationality": processed_nationality_code,
+                        }
+                        phone_info = self.fetch_bt503_ubo_contact(ubo_element)
+                        if phone_info:
+                            ubo_info.update(phone_info)
+
+                        organization.setdefault("beneficialOwners", []).append(ubo_info)
 
         return organizations
 
@@ -1861,18 +1941,17 @@ class TEDtoOCDSConverter:
         if not found:
             self.tender.setdefault("documents", []).append(new_document)
 
-    def get_or_create_organization(parties, org_id, roles=None):
-        for organization in parties:
-            if organization["id"] == org_id:
-                if roles:
-                    for role in roles:
-                        if role not in organization.get("roles", []):
-                            organization.setdefault("roles", []).append(role)
-                return organization
-        # If not found, create a new organization
-        new_organization = {"id": org_id, "roles": roles if roles else []}
-        parties.append(new_organization)
-        return new_organization
+    def get_or_create_organization(self, parties, org_id, roles=None):
+        existing = next((org for org in parties if org["id"] == org_id), None)
+        if existing:
+            if roles:
+                existing_roles = existing.get("roles", [])
+                combined_roles = list(set(existing_roles + roles))
+                existing["roles"] = combined_roles
+            return existing
+        new_org = {"id": org_id, "roles": roles if roles else []}
+        parties.append(new_org)
+        return new_org
 
     @staticmethod
     def update_organization(organization, new_info):
@@ -3702,13 +3781,9 @@ class TEDtoOCDSConverter:
                 self.handle_tendering_party(contract_id, tender_id)
                 logger.debug(f"Processed contract {contract_id} with tender ID {tender_id}")
 
-    def fetch_organisations_roles(org_id, roles):
-        organization = get_or_create_organization(self.parties, org_id)
-        if roles:
-            for role in roles:
-                if role not in organization["roles"]:
-                    organization["roles"].append(role)
-        return organization
+    def fetch_organisations_roles(self, org_id, roles):
+        org = self.get_or_create_organization(self.parties, org_id, roles)
+        return org
 
     def add_or_update_contract_related_bids(self, contract_id, tender_id):
         contract = next(
@@ -4688,11 +4763,11 @@ class TEDtoOCDSConverter:
         logger = logging.getLogger(__name__)
         parties = []
 
-    def add_or_update_party(parties, new_party):
-        for p in parties:
-            if p["id"] == new_party["id"]:
-                p.update(new_party)
-                return p
+    def add_or_update_party(self, parties, new_party):
+        existing = next((p for p in parties if p["id"] == new_party["id"]), None)
+        if existing:
+            existing.update(new_party)
+            return existing
         parties.append(new_party)
         return new_party
 
@@ -4738,7 +4813,7 @@ class TEDtoOCDSConverter:
     def convert_tender_to_ocds(self):
         root = self.parser.root
 
-        ocid = "blah" 
+        ocid = "ocds-123456789"  # Replace with actual OCID
         dispatch_datetime = self.get_dispatch_date_time()
         tender_title = self.parser.find_text(root, ".//cac:ProcurementProject/cbc:Name")
 
@@ -4855,7 +4930,7 @@ class TEDtoOCDSConverter:
             self.fetch_opt_315_contract_identifier(root)
             self.fetch_bt200_contract_modification(root)
 
-            self.parties = self.fetch_bt500_company_organization(root)
+            self.parties.extend(self.fetch_bt500_company_organization(root))
         except Exception as e:
             logging.error(f"Error processing data: {e}")
 
@@ -4896,12 +4971,9 @@ class TEDtoOCDSConverter:
             {contract["id"]: contract for contract in self.get_contracts()}.values()
         )
 
-        # Ensure roles are correctly set before creating the final release
         for party in self.parties:
             if "roles" not in party:
                 party["roles"] = []
-
-        logging.info(f"Parties structure before cleaning: {self.parties}")
 
         release = {
             "id": str(uuid.uuid4()),
