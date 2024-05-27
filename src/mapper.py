@@ -993,7 +993,7 @@ class TEDtoOCDSConverter:
                 buyer_party, "./cac:Party/cac:PartyIdentification/cbc:ID",
                 namespaces=self.parser.nsmap)
             if buyer_id:
-                fetch_organisations_roles(buyer_id, ["buyer"])
+                self.fetch_organisations_roles(buyer_id, ["buyer"])
 
     def fetch_opt_301_tenderer_maincont(self, root_element):
         notice_results = root_element.findall(
@@ -4945,23 +4945,21 @@ class TEDtoOCDSConverter:
             award_contracts = [
                 contract
                 for contract in self.get_contracts()
-                if award_id in contract.get("awardID", [])
+                if contract.get("awardID") == award_id
             ]
             suppliers = []
-            buyer_ids = set()
+            buyers = []
 
             for contract in award_contracts:
-                for supplier in contract.get("suppliers", []):
-                    suppliers.append(supplier)
-                for buyer in contract.get("buyers", []):
-                    buyer_ids.add(buyer.get("id"))
+                suppliers.extend(contract.get("suppliers", []))
+                buyers.extend(contract.get("buyers", []))
 
             awards.append(
                 {
                     **award,
                     "contracts": award_contracts,
                     "suppliers": suppliers,
-                    "buyers": [{"id": buyer_id} for buyer_id in buyer_ids],
+                    "buyers": [{"id": buyer.get("id")} for buyer in buyers],
                 }
             )
 
