@@ -4635,14 +4635,19 @@ class TEDtoOCDSConverter:
 
     def add_or_update_bid_tenderers(self, bid_id, tenderer_id):
         bid = next(
-            (b for b in self.tender["bids"]["details"] if b["id"] == bid_id), None
+            (bid for bid in self.tender["bids"]["details"] if bid["id"] == bid_id), None
         )
         if bid:
-            bid.setdefault("tenderers", []).append({"id": tenderer_id})
+            if "tenderers" not in bid:
+                bid["tenderers"] = []
+            if not any(tenderer["id"] == tenderer_id for tenderer in bid["tenderers"]):
+                bid["tenderers"].append({"id": tenderer_id})
         else:
             self.tender["bids"]["details"].append(
                 {"id": bid_id, "tenderers": [{"id": tenderer_id}]}
             )
+
+        logger.debug(f"Updated bid {bid_id} with tenderer {tenderer_id}")
 
     def fetch_opt_320_contract_tender_reference(self, root_element):
         settled_contracts = root_element.findall(
@@ -4803,6 +4808,187 @@ class TEDtoOCDSConverter:
                     },
                 )
 
+    def fetch_bt63_lot_variants(self, root_element):
+        lots = root_element.xpath(
+            ".//cac:ProcurementProjectLot[cbc:ID/@schemeName='Lot']",
+            namespaces=self.parser.nsmap,
+        )
+        for lot in lots:
+            lot_id = self.parser.find_text(lot, "./cbc:ID", namespaces=self.parser.nsmap)
+            variant_policy_code = self.parser.find_text(
+                lot,
+                "./cac:TenderingTerms/cbc:VariantConstraintCode[@listName='permission']",
+                namespaces=self.parser.nsmap,
+            )
+            if variant_policy_code:
+                lot_info = {
+                    "id": lot_id,
+                    "submissionTerms": {
+                        "variantPolicy": variant_policy_code
+                    }
+                }
+                self.add_or_update_lot(self.tender["lots"], lot_info)
+
+    def fetch_bt661_maximum_candidates(self, root_element):
+        lots = root_element.xpath(
+            ".//cac:ProcurementProjectLot[cbc:ID/@schemeName='Lot']",
+            namespaces=self.parser.nsmap,
+        )
+        for lot in lots:
+            lot_id = self.parser.find_text(lot, "./cbc:ID", namespaces=self.parser.nsmap)
+            max_candidates_indicator = self.parser.find_text(
+                lot,
+                "./cac:TenderingProcess/cac:EconomicOperatorShortList/cbc:LimitationDescription",
+                namespaces=self.parser.nsmap,
+            )
+            if max_candidates_indicator and max_candidates_indicator.lower() == "true":
+                lot_info = {
+                    "id": lot_id,
+                    "secondStage": {
+                        "maximumCandidates": True
+                    }
+                }
+                self.add_or_update_lot(self.tender["lots"], lot_info)
+
+    def fetch_bt67a_exclusion_grounds(self, root_element):
+        exclusion_criteria = []
+
+        exclusion_criteria_elements = root_element.xpath(
+            ".//cac:TenderingTerms/cac:TendererQualificationRequest"
+            "/cac:SpecificTendererRequirement/cbc:TendererRequirementTypeCode[@listName='exclusion-ground']",
+            namespaces=self.parser.nsmap,
+        )
+        for element in exclusion_criteria_elements:
+            exclusion_type = element.text
+            description_element = element.getparent().find("cbc:Description", namespaces=self.parser.nsmap)
+            description = exclusion_type
+            if description_element is not None:
+                description += ": " + description_element.text
+            exclusion_criteria.append({
+                "type": exclusion_type,
+                "description": description
+            })
+
+        if exclusion_criteria:
+            self.tender["exclusionGrounds"] = {
+                "criteria": exclusion_criteria
+            }
+
+    def fetch_bt76_tenderer_legal_form_description(self, root_element):
+        lots = root_element.xpath(
+            ".//cac:ProcurementProjectLot[cbc:ID/@schemeName='Lot']",
+            namespaces=self.parser.nsmap,
+        )
+        for lot in lots:
+            lot_id = self.parser.find_text(lot, "./cbc:ID", namespaces=self.parser.nsmap)
+            legal_form_description = self.parser.find_text(
+                lot,
+                "./cac:TenderingTerms/cac:TendererQualificationRequest[not(cac:SpecificTendererRequirement)]/cbc:CompanyLegalForm",
+                namespaces=self.parser.nsmap,
+            )
+            if legal_form_description:
+                lot_info = {
+                    "id": lot_id,
+                    "contractTerms": {
+                        "tendererLegalForm": legal_form_description
+                    }
+                }
+                self.add_or_update_lot(self.tender["lots"], lot_info)
+
+    def fetch_bt760_lot_result_received_submissions(self, root_element):
+        lot_results = root_element.xpath(
+            ".//efac:NoticeResult/efac:LotResult", namespaces=self.parser.nsmap
+        )
+        stat_id = len(self.tender["bids"]["statistics"]) + 1  # Continue incrementing statistics ID counter
+
+        for lot_result in lot_results:
+            lot_id = self.parser.find_text(
+                lot_result, "./efac:TenderLot/cbc:ID", namespaces=self.parser.nsmap
+            )
+            received_submissions = lot_result.xpath(
+                "./efac:ReceivedSubmissionsStatistics/efbc:StatisticsCode[@listName='received-submission-type']",
+                namespaces=self.parser.nsmap,
+            )
+            for submission in received_submissions:
+                submission_type = submission.text
+                if submission_type:
+                    self.tender["bids"]["statistics"].append({
+                        "id": str(stat_id),
+                        "measure": self.map_received_submission_type_to_measure(submission_type),
+                        "relatedLot": lot_id
+                    })
+                    stat_id += 1
+
+    def fetch_bt769_multiple_tenders(self, root_element):
+        lots = root_element.xpath(
+            ".//cac:ProcurementProjectLot[cbc:ID/@schemeName='Lot']",
+            namespaces=self.parser.nsmap,
+        )
+        for lot in lots:
+            lot_id = self.parser.find_text(lot, "./cbc:ID", namespaces=self.parser.nsmap)
+            multiple_tenders_code = self.parser.find_text(
+                lot,
+                "./cac:TenderingTerms/cbc:MultipleTendersCode[@listName='permission']",
+                namespaces=self.parser.nsmap,
+            )
+            if multiple_tenders_code:
+                lot_info = {
+                    "id": lot_id,
+                    "submissionTerms": {
+                        "multipleBidsAllowed": multiple_tenders_code.lower() == "allowed"
+                    }
+                }
+                self.add_or_update_lot(self.tender["lots"], lot_info) 
+
+    def fetch_bt762_change_reason_description(self, root_element):
+        change_reasons = root_element.xpath(
+            ".//efext:EformsExtension/efac:Changes/efac:ChangeReason/efbc:ReasonDescription",
+            namespaces=self.parser.nsmap,
+        )
+        for reason in change_reasons:
+            rationale = reason.text
+            amendment = self.tender.get("amendments")
+            if amendment:
+                amendment["rationale"] = rationale
+            else:
+                self.tender["amendments"] = [{"rationale": rationale}]    
+
+    def fetch_opt_310_tendering_party_id_reference(self, root_element):
+        notice_results = root_element.xpath(
+            ".//efac:NoticeResult",
+            namespaces=self.parser.nsmap,
+        )
+        for notice_result in notice_results:
+            lot_tender_elements = notice_result.xpath("./efac:LotTender", namespaces=self.parser.nsmap)
+            for lot_tender in lot_tender_elements:
+                tender_id = self.parser.find_text(lot_tender, "./cbc:ID", namespaces=self.parser.nsmap)
+                tendering_party_id = self.parser.find_text(
+                    lot_tender, "./efac:TenderingParty/cbc:ID", namespaces=self.parser.nsmap
+                )
+                if tendering_party_id:
+                    tendering_party = next(
+                        (
+                            tp for tp in notice_result.findall('./efac:TenderingParty', namespaces=self.parser.nsmap)
+                            if self.parser.find_text(tp, './cbc:ID', namespaces=self.parser.nsmap) == tendering_party_id
+                        ), 
+                        None
+                    )
+                    if tendering_party is not None:
+                        tenderers = tendering_party.findall("./efac:Tenderer", namespaces=self.parser.nsmap)
+                        for tenderer in tenderers:
+                            tenderer_id = self.parser.find_text(tenderer, "./cbc:ID", namespaces=self.parser.nsmap)
+                            if tenderer_id:
+                                self.add_or_update_party(self.parties, {"id": tenderer_id, "roles": ["tenderer"]})
+                                self.add_or_update_bid_tenderers(tender_id, tenderer_id)
+
+    def map_received_submission_type_to_measure(self, submission_type):
+        mapping = {
+            "t-sme": "smeBids",
+            "t-esea": "eeaBids", 
+            "t-out-eu": "nonEeaBids"  # Example mapping; add more as needed
+        }
+        return mapping.get(submission_type, "totalBids")  # Default to 'totalBids' if not found
+
     def convert_tender_to_ocds(self):
         root = self.parser.root
 
@@ -4895,6 +5081,14 @@ class TEDtoOCDSConverter:
             self.fetch_bt553_subcontracting_value,
             self.fetch_bt554_subcontracting_description,
             self.fetch_opt_320_lotresult_tender_reference,
+            self.fetch_bt63_lot_variants,
+            self.fetch_bt661_maximum_candidates,
+            self.fetch_bt67a_exclusion_grounds,
+            self.fetch_bt76_tenderer_legal_form_description,
+            self.fetch_bt760_lot_result_received_submissions,
+            self.fetch_bt769_multiple_tenders,
+            self.fetch_bt762_change_reason_description,
+            self.fetch_opt_310_tendering_party_id_reference
         ]
 
         for method in methods_to_call:
