@@ -3367,6 +3367,17 @@ class TEDtoOCDSConverter:
             return {"amount": amount, "currency": currency}
         return None
 
+    def fetch_bt88_procurement_method_details(self, root_element):
+        """
+        Fetches BT-88: The main features of the procedure and maps to tender.procurementMethodDetails.
+        """
+        method_details = self.parser.find_text(
+            root_element, ".//cac:TenderingProcess/cbc:Description", namespaces=self.parser.nsmap
+        )
+        if method_details:
+            self.tender["procurementMethodDetails"] = method_details
+            logging.info(f"Extracted Procurement Method Details: {method_details}")
+
     def fetch_bt13713_lotresult(self, root_element):
         lot_results = root_element.findall(
             ".//efac:NoticeResult/efac:LotResult", namespaces=self.parser.nsmap
@@ -5001,6 +5012,7 @@ class TEDtoOCDSConverter:
         self.tender.setdefault("bids", {}).setdefault("details", [])
 
         methods_to_call = [
+            self.fetch_bt88_procurement_method_details,
             self.fetch_bt710_bt711_bid_statistics,
             self.fetch_bt712_complaints_statistics,
             self.fetch_bt09_cross_border_law,
@@ -5105,10 +5117,7 @@ class TEDtoOCDSConverter:
             additional_info = self.fetch_bt300_additional_info(root)
             tender_estimated_value = self.fetch_tender_estimated_value(root)
             procedure_type = self.parse_procedure_type(root)
-            (
-                procurement_method_rationale,
-                procurement_method_rationale_classifications,
-            ) = self.parse_direct_award_justification(root)
+            procurement_method_rationale, procurement_method_rationale_classifications = self.parse_direct_award_justification(root)
             procedure_features = self.parse_procedure_features(root)
             items = self.parse_classifications(root)
             related_processes = self.parse_related_processes(root)
@@ -5186,9 +5195,7 @@ class TEDtoOCDSConverter:
                 "procurementMethod": (
                     procedure_type["method"] if procedure_type else None
                 ),
-                "procurementMethodDetails": (
-                    procedure_type["details"] if procedure_type else None
-                ),
+                "procurementMethodDetails": self.tender.get("procurementMethodDetails"),
                 "procurementMethodRationale": procurement_method_rationale,
                 "procurementMethodRationaleClassifications": procurement_method_rationale_classifications,
                 "classification": {"activities": activities} if activities else None,
