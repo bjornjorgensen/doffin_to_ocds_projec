@@ -1,0 +1,8 @@
+<root xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+      xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+  <cac:TenderingTerms>
+    <cac:ProcurementLegislationDocumentReference>
+      <cbc:ID>LocalLegalBasis</cbc:ID>
+    </cac:ProcurementLegislationDocumentReference>
+  </cac:TenderingTerms>
+</root>

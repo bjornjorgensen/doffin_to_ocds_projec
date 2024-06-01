@@ -86,6 +86,47 @@ class TestTEDtoOCDSConverter(unittest.TestCase):
         }
         self.assertEqual(result.get("tender", {}).get("legalBasis"), expected_legal_basis)
 
+    def test_bt01d_procedure_legal_basis_description(self):
+        parser = XMLParser(os.path.join("tests", "sample_xml", "example_with_bt01d.xml"))
+        converter = TEDtoOCDSConverter(parser)
+        logging.info("Testing BT-01(d) Procedure Legal Basis Description")
+        result = converter.convert_tender_to_ocds()
+        expected_legal_basis = {
+            "description": "Directive XYZ applies ..."
+        }
+        self.assertEqual(result.get("tender", {}).get("legalBasis", {}).get("description"), expected_legal_basis["description"])
+
+    def test_bt01e_procedure_legal_basis_noid(self):
+        parser = XMLParser(os.path.join("tests", "sample_xml", "example_with_bt01e.xml"))
+        converter = TEDtoOCDSConverter(parser)
+        logging.info("Testing BT-01(e) Procedure Legal Basis NoID")
+        result = converter.convert_tender_to_ocds()
+        expected_legal_basis = {
+            "id": "LocalLegalBasis"
+        }
+        self.assertEqual(result.get("tender", {}).get("legalBasis", {}).get("id"), expected_legal_basis["id"])
+
+    def test_bt01f_procedure_legal_basis_noid_description(self):
+        parser = XMLParser(os.path.join("tests", "sample_xml", "example_with_bt01f.xml"))
+        converter = TEDtoOCDSConverter(parser)
+        logging.info("Testing BT-01(f) Procedure Legal Basis NoID Description")
+        result = converter.convert_tender_to_ocds()
+        expected_legal_basis = {
+            "description": "Directive XYZ applies ..."
+        }
+        self.assertEqual(result.get("tender", {}).get("legalBasis", {}).get("description"), expected_legal_basis["description"])
+
+    def test_bt01_notice_legal_basis(self):
+        parser = XMLParser(os.path.join("tests", "sample_xml", "example_with_bt01_notice.xml"))
+        converter = TEDtoOCDSConverter(parser)
+        logging.info("Testing BT-01 Notice Legal Basis")
+        result = converter.convert_tender_to_ocds()
+        expected_legal_basis = {
+            "scheme": "CELEX",
+            "id": "32014L0024"
+        }
+        self.assertEqual(result.get("tender", {}).get("legalBasis"), expected_legal_basis)
+
 
 if __name__ == '__main__':
     unittest.main()
