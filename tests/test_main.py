@@ -6,8 +6,8 @@ import os
 
 from src.mapper import XMLParser, TEDtoOCDSConverter, parse_iso_date  # Adjust the import as per the actual module
 
-# Disable logging for testing
-logging.disable(logging.CRITICAL)
+# Enable logging for testing
+logging.basicConfig(level=logging.DEBUG)
 
 
 class TestUtils(unittest.TestCase):
@@ -61,6 +61,30 @@ class TestTEDtoOCDSConverter(unittest.TestCase):
         result = converter.convert_tender_to_ocds()
         expected_procurement_method_details = "A two-stage procedure ..."
         self.assertEqual(result.get("tender", {}).get("procurementMethodDetails"), expected_procurement_method_details)
+
+    def test_bt125i_previous_planning_identifier(self):
+        parser = XMLParser(os.path.join("tests", "sample_xml", "example_previous_planning.xml"))
+        converter = TEDtoOCDSConverter(parser)
+        logging.info("Testing BT-125i Previous Planning Identifier")
+        result = converter.convert_tender_to_ocds()
+        expected_related_process = {
+            "id": "1",
+            "relationship": ["planning"],
+            "scheme": "eu-oj",
+            "identifier": "123e4567-e89b-12d3-a456-426614174000-06-PAR-0001",
+        }
+        self.assertIn(expected_related_process, result.get("relatedProcesses", []))
+
+    def test_bt01c_procedure_legal_basis(self):
+        parser = XMLParser(os.path.join("tests", "sample_xml", "example_with_bt01c.xml"))
+        converter = TEDtoOCDSConverter(parser)
+        logging.info("Testing BT-01(c) Procedure Legal Basis")
+        result = converter.convert_tender_to_ocds()
+        expected_legal_basis = {
+            "scheme": "ELI",
+            "id": "http://data.europa.eu/eli/dir/2014/24/oj"
+        }
+        self.assertEqual(result.get("tender", {}).get("legalBasis"), expected_legal_basis)
 
 
 if __name__ == '__main__':

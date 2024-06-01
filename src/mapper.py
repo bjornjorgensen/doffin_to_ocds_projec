@@ -5000,6 +5000,42 @@ class TEDtoOCDSConverter:
         }
         return mapping.get(submission_type, "totalBids")  # Default to 'totalBids' if not found
 
+    def fetch_bt125i_previous_planning_identifier(self, root_element):
+        """
+        Fetches BT-125(i): The identifier of a prior information notice or another similar notice related to this notice.
+        """
+        logger.info("Fetching BT-125(i) Previous Planning Identifier")
+
+        related_processes = self.tender.setdefault("relatedProcesses", [])
+        parts = root_element.xpath(
+            ".//cac:ProcurementProjectLot[cbc:ID/@schemeName='Part']",
+            namespaces=self.parser.nsmap,
+        )
+
+        for part in parts:
+            part_id = self.parser.find_text(part, "./cbc:ID", namespaces=self.parser.nsmap)
+            logger.debug(f"Processing part with ID: {part_id}")
+            notice_refs = part.findall(
+                "./cac:TenderingProcess/cac:NoticeDocumentReference", namespaces=self.parser.nsmap
+            )
+            for notice_ref in notice_refs:
+                notice_id = self.parser.find_text(notice_ref, "./cbc:ID", namespaces=self.parser.nsmap)
+                referenced_internal_address = self.parser.find_text(
+                    notice_ref, "./cbc:ReferencedDocumentInternalAddress", namespaces=self.parser.nsmap)
+
+                logger.debug(f"Notice ID: {notice_id}, Referenced Internal Address: {referenced_internal_address}")
+
+                if notice_id and referenced_internal_address:
+                    full_identifier = f"{notice_id}-{referenced_internal_address}"
+                    related_process = {
+                        "id": str(len(related_processes) + 1),
+                        "relationship": ["planning"],
+                        "scheme": "eu-oj",
+                        "identifier": full_identifier
+                    }
+                    related_processes.append(related_process)
+                    logger.debug(f"Added related process: {related_process}")
+
     def convert_tender_to_ocds(self):
         root = self.parser.root
 
@@ -5008,8 +5044,21 @@ class TEDtoOCDSConverter:
         tender_title = self.parser.find_text(root, ".//cac:ProcurementProject/cbc:Name")
 
         form_type = self.get_form_type(root)
-        language = self.fetch_notice_language(root)
+        language = self.fetch_notice_language(root) or "en"  # Default to "en" if None
         self.tender.setdefault("bids", {}).setdefault("details", [])
+
+        # Ensure all possible keys are initialized to avoid UnboundLocalError
+        activities = []
+        legal_types = []
+        lots = []
+        legal_basis = {}
+        additional_info = None
+        tender_estimated_value = None
+        procedure_type = None
+        procurement_method_rationale = None
+        procurement_method_rationale_classifications = None
+        procedure_features = None
+        items = []
 
         methods_to_call = [
             self.fetch_bt88_procurement_method_details,
@@ -5100,7 +5149,8 @@ class TEDtoOCDSConverter:
             self.fetch_bt760_lot_result_received_submissions,
             self.fetch_bt769_multiple_tenders,
             self.fetch_bt762_change_reason_description,
-            self.fetch_opt_310_tendering_party_id_reference
+            self.fetch_opt_310_tendering_party_id_reference,
+            self.fetch_bt125i_previous_planning_identifier
         ]
 
         for method in methods_to_call:
@@ -5120,7 +5170,6 @@ class TEDtoOCDSConverter:
             procurement_method_rationale, procurement_method_rationale_classifications = self.parse_direct_award_justification(root)
             procedure_features = self.parse_procedure_features(root)
             items = self.parse_classifications(root)
-            related_processes = self.parse_related_processes(root)
 
             self.handle_bidding_documents(root)
             self.fetch_opt_315_contract_identifier(root)
@@ -5203,7 +5252,8 @@ class TEDtoOCDSConverter:
                 "procedureFeatures": procedure_features if procedure_features else None,
                 "mainProcurementCategory": "services",  # Adjust mainProcurementCategory as needed
             },
-            "relatedProcesses": related_processes,
+            # Only access 'self.tender' for relatedProcesses
+            "relatedProcesses": self.clean_release_structure(self.tender.get("relatedProcesses", [])),
             "awards": awards,
             "contracts": unique_contracts,
             "bids": self.tender["bids"],

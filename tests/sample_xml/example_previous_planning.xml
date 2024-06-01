@@ -1,0 +1,12 @@
+<root xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+      xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+  <cac:ProcurementProjectLot>
+    <cbc:ID schemeName="Part">part-123</cbc:ID>
+    <cac:TenderingProcess>
+      <cac:NoticeDocumentReference>
+        <cbc:ID schemeName="notice-id-ref">123e4567-e89b-12d3-a456-426614174000-06</cbc:ID>
+        <cbc:ReferencedDocumentInternalAddress>PAR-0001</cbc:ReferencedDocumentInternalAddress>
+      </cac:NoticeDocumentReference>
+    </cac:TenderingProcess>
+  </cac:ProcurementProjectLot>
+</root>
