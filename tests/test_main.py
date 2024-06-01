@@ -41,6 +41,7 @@ class TestXMLParser(unittest.TestCase):
         self.assertIsNone(result)  # Since 'lang' attribute doesn't exist in the test XML
 
 
+
 class TestTEDtoOCDSConverter(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -126,6 +127,16 @@ class TestTEDtoOCDSConverter(unittest.TestCase):
             "id": "32014L0024"
         }
         self.assertEqual(result.get("tender", {}).get("legalBasis"), expected_legal_basis)
+
+    def test_bt03_notice_form_type(self):
+        parser = XMLParser(os.path.join("tests", "sample_xml", "example_with_bt03_notice.xml"))
+        converter = TEDtoOCDSConverter(parser)
+        logging.info("Testing BT-03 Notice Form Type")
+        result = converter.convert_tender_to_ocds()
+        expected_tag = ["tender"]
+        expected_status = "active"
+        self.assertEqual(result.get("tag"), expected_tag)
+        self.assertEqual(result.get("tender", {}).get("status"), expected_status)
 
 
 if __name__ == '__main__':
